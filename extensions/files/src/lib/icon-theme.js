@@ -24,7 +24,10 @@ export function save_icon_theme(theme) {
 }
 
 export function subscribe_icon_theme(callback) {
-  const reload = () => callback(load_icon_theme());
+  const reload = (event) => {
+    if (event?.type === "storage" && event.key !== null && event.key !== STORAGE_KEY) return;
+    callback(load_icon_theme());
+  };
   window.addEventListener("storage", reload);
   window.addEventListener(SYNC_EVENT, reload);
   return () => {

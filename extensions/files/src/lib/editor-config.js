@@ -46,7 +46,10 @@ export function update_editor_config(current, patch) {
 }
 
 export function subscribe_editor_config(callback) {
-  const reload = () => callback(load_editor_config());
+  const reload = (event) => {
+    if (event?.type === "storage" && event.key !== null && event.key !== STORAGE_KEY) return;
+    callback(load_editor_config());
+  };
   window.addEventListener("storage", reload);
   window.addEventListener(SYNC_EVENT, reload);
   return () => {
