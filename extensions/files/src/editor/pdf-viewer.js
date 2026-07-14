@@ -1,6 +1,7 @@
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { read_binary_bytes } from "@/lib/binary-data";
 import { error_message } from "@/lib/files";
+import { format_file_size } from "@/lib/file-size";
 import { cls, h, icon_svg } from "@/lib/dom";
 
 const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -27,20 +28,6 @@ function is_cancelled(err) {
 
 function pdf_asset_url(directory) {
   return new URL(`pdfjs/${directory}/`, workerSrc).href;
-}
-
-function format_size(bytes) {
-  if (!Number.isFinite(bytes) || bytes < 0) return null;
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${rounded} ${units[unit]}`;
 }
 
 function PreviousIcon() {
@@ -283,7 +270,7 @@ export class PdfViewer {
     try {
       const stat = await muxy.files.stat(this.filePath);
       if (this.disposed) return;
-      const label = format_size(stat?.size);
+      const label = format_file_size(stat?.size);
       if (label) slot.textContent = label;
     } catch {
     }
