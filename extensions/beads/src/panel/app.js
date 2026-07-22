@@ -1,15 +1,23 @@
-import { clear, h } from "@/lib/dom";
+import { clear, h, svg } from "@/lib/dom";
 import { icon } from "@/lib/icons";
 import {
+  BLOCKING_EDGE,
   applyColumnOrder,
+  buildDependencyGraph,
+  buildInsights,
+  buildIssueIndex,
+  getBlockerLinks,
+  getDependentLinks,
   groupIssuesByColumn,
   getIssueAge,
   getPriorityLabel,
   getStatusLabel,
+  loadBoardContext,
   loadBoardData,
 } from "./data";
 
 const LAYOUT_STORAGE_KEY = "beads-board-layout";
+const DATA_CACHE_KEY_PREFIX = "beads-board-data-v1:";
 const DEFAULT_AUTO_REFRESH_MS = 15000;
 const DEFAULT_VIEW = "board";
 const DEFAULT_INSPECTOR_WIDTH = 320;
@@ -17,9 +25,15 @@ const MIN_INSPECTOR_WIDTH = 260;
 const MAX_INSPECTOR_WIDTH = 640;
 const VIEWS = [
   { id: "board", label: "Board" },
-  { id: "ledger", label: "Ledger" },
-  { id: "ready", label: "Ready Path" },
+  { id: "graph", label: "Graph" },
+  { id: "insights", label: "Insights" },
 ];
+const GRAPH_NODE_WIDTH = 184;
+const GRAPH_NODE_MIN_HEIGHT = 82;
+const GRAPH_COL_GAP = 60;
+const GRAPH_ROW_GAP = 18;
+const GRAPH_PADDING = 20;
+const INSIGHT_LIST_LIMIT = 6;
 const AUTO_REFRESH_OPTIONS = [
   { label: "Never", value: 0 },
   { label: "15s", value: 15000 },
@@ -34,12 +48,18 @@ export class BeadsBoardPanel {
     this.issues = [];
     this.filterText = "";
     this.selectedIssue = null;
-    this.showDetail = false;
     this.projectName = "Workspace";
     this.workspacePath = null;
     this.source = "none";
     this.error = null;
+    this.loading = true;
+    this.hasLoaded = false;
+    this.usingCache = false;
+    this.cachedAt = null;
     this.refreshing = false;
+    this.refreshGeneration = 0;
+    this.activeRefreshGeneration = null;
+    this.workspaceRefreshTimer = null;
     this.pollTimer = null;
     this.autoRefreshMs = DEFAULT_AUTO_REFRESH_MS;
     this.activeView = DEFAULT_VIEW;
@@ -49,6 +69,7 @@ export class BeadsBoardPanel {
     this.columnOrder = [];
     this.draggingColumnID = null;
     this.suppressColumnClickUntil = 0;
+    this.graphRenderSequence = 0;
     this.isTab = window.muxy?.data?.surface === "tab";
   }
 
@@ -60,6 +81,7 @@ export class BeadsBoardPanel {
     muxy.onFocus?.((focused) => {
       if (focused && !this.selectedIssue) this.root.querySelector(".search-input")?.focus();
     });
+    this.render();
     await this.loadLayout();
     this.render();
     this.refresh(true);
@@ -68,40 +90,142 @@ export class BeadsBoardPanel {
 
   destroy() {
     this.clearAutoRefreshTimer();
+    if (this.workspaceRefreshTimer) clearTimeout(this.workspaceRefreshTimer);
   }
 
   delayedRefresh() {
+    this.refreshGeneration += 1;
+    if (this.workspaceRefreshTimer) clearTimeout(this.workspaceRefreshTimer);
     this.issues = [];
     this.selectedIssue = null;
-    this.showDetail = false;
     this.error = null;
+    this.loading = true;
+    this.hasLoaded = false;
+    this.usingCache = false;
+    this.cachedAt = null;
+    this.source = "none";
+    this.workspacePath = null;
     this.collapsedColumns = new Set();
     this.touchedColumns = new Set();
     this.draggingColumnID = null;
     this.render();
-    setTimeout(() => this.refresh(true), 300);
+    const generation = this.refreshGeneration;
+    this.workspaceRefreshTimer = setTimeout(() => {
+      this.workspaceRefreshTimer = null;
+      this.refresh(true, generation);
+    }, 300);
   }
 
-  async refresh(force) {
-    if (this.refreshing) return;
+  async refresh(force, generation = this.refreshGeneration) {
+    if (this.activeRefreshGeneration === generation) return;
+    this.activeRefreshGeneration = generation;
     this.refreshing = true;
-    if (force && this.issues.length === 0) this.render();
+    if (!this.hasLoaded) this.loading = true;
+    if (force || !this.hasLoaded) this.render();
 
     try {
-      const data = await loadBoardData();
-      this.issues = data.issues;
-      this.projectName = data.projectName;
-      this.workspacePath = data.workspacePath;
-      this.source = data.source;
-      this.error = data.error;
-      this.syncSelectedIssue();
+      const context = await loadBoardContext();
+      if (!this.isCurrentRefresh(generation)) return;
+
+      this.projectName = context.projectName;
+      this.workspacePath = context.workspacePath;
+
+      if (!this.hasLoaded) {
+        const cached = await this.loadCachedData(context);
+        if (!this.isCurrentRefresh(generation)) return;
+        if (cached) {
+          this.applyBoardData(cached, true);
+          this.loading = false;
+          this.render();
+        }
+      }
+
+      const data = await loadBoardData(context);
+      if (!this.isCurrentRefresh(generation)) return;
+
+      if (data.source === "none" && this.hasLoaded && this.source !== "none") {
+        this.error = data.error;
+        this.usingCache = true;
+      } else {
+        this.applyBoardData(data, false);
+        if (data.source !== "none") {
+          const cachedAt = await this.saveCachedData(data);
+          if (this.isCurrentRefresh(generation)) this.cachedAt = cachedAt;
+        }
+      }
+      if (!this.isCurrentRefresh(generation)) return;
       this.updateTopbar();
     } catch (error) {
-      this.error = error?.message ?? String(error);
+      if (this.isCurrentRefresh(generation)) {
+        this.error = error?.message ?? String(error);
+        if (this.hasLoaded && this.source !== "none") this.usingCache = true;
+        this.hasLoaded = true;
+      }
     } finally {
-      this.refreshing = false;
-      this.render();
+      if (this.isCurrentRefresh(generation)) {
+        this.activeRefreshGeneration = null;
+        this.refreshing = false;
+        this.loading = false;
+        this.hasLoaded = true;
+        this.render();
+      }
     }
+  }
+
+  isCurrentRefresh(generation) {
+    return generation === this.refreshGeneration;
+  }
+
+  applyBoardData(data, cached) {
+    this.issues = data.issues;
+    this.projectName = data.projectName;
+    this.workspacePath = data.workspacePath;
+    this.source = data.source;
+    this.error = cached ? null : data.error;
+    this.hasLoaded = true;
+    this.usingCache = cached;
+    this.cachedAt = cached ? data.cachedAt : null;
+    this.syncSelectedIssue();
+  }
+
+  async loadCachedData(context) {
+    if (!context.workspaceKey) return null;
+
+    try {
+      const cached = await muxy.storage.get(this.getDataCacheKey(context.workspaceKey));
+      if (cached?.workspaceKey !== context.workspaceKey || !Array.isArray(cached?.issues)) return null;
+      return cached;
+    } catch {
+      return null;
+    }
+  }
+
+  async saveCachedData(data) {
+    if (!data.workspaceKey) return null;
+
+    try {
+      const cachedAt = Date.now();
+      await muxy.storage.set(this.getDataCacheKey(data.workspaceKey), {
+        workspaceKey: data.workspaceKey,
+        workspacePath: data.workspacePath,
+        projectName: data.projectName,
+        source: data.source,
+        issues: data.issues,
+        cachedAt,
+      });
+      return cachedAt;
+    } catch {
+      return null;
+    }
+  }
+
+  getDataCacheKey(workspaceKey) {
+    let hash = 2166136261;
+    for (let index = 0; index < workspaceKey.length; index += 1) {
+      hash ^= workspaceKey.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${DATA_CACHE_KEY_PREFIX}${(hash >>> 0).toString(36)}`;
   }
 
   updateTopbar() {
@@ -118,15 +242,13 @@ export class BeadsBoardPanel {
 
   render() {
     clear(this.root);
-    if (this.selectedIssue && this.showDetail && !this.isTab) {
-      this.root.appendChild(this.renderDetailPage());
-      return;
-    }
-
+    this.index = buildIssueIndex(this.issues);
     this.root.appendChild(h("div", { class: "app-shell" },
       this.renderTopbar(),
-      this.error && this.issues.length === 0 ? this.renderNotice() : null,
-      this.issues.length === 0 ? this.renderEmpty() : this.renderActiveView(),
+      this.error && (this.source === "none" || this.usingCache) ? this.renderNotice() : null,
+      this.loading && !this.hasLoaded
+        ? this.renderLoading()
+        : this.issues.length === 0 ? this.renderEmpty() : this.renderActiveView(),
     ));
   }
 
@@ -168,8 +290,10 @@ export class BeadsBoardPanel {
         }, icon("x", 12)) : null,
       ),
       h("button", {
-        class: "icon-button",
-        title: "Refresh beads",
+        class: `icon-button${this.refreshing ? " is-refreshing" : ""}`,
+        title: this.refreshing ? "Refreshing beads" : "Refresh beads",
+        "aria-label": this.refreshing ? "Refreshing beads" : "Refresh beads",
+        "aria-busy": this.refreshing,
         disabled: this.refreshing,
         onclick: () => this.refresh(true),
       }, icon("refresh", 13)),
@@ -181,12 +305,16 @@ export class BeadsBoardPanel {
         value: option.value,
         selected: option.value === this.autoRefreshMs,
       }, option.label))),
+      this.usingCache ? h("span", {
+        class: "cache-indicator",
+        title: this.cachedAt ? `Cached ${new Date(this.cachedAt).toLocaleString()}` : "Cached data",
+      }, "Cached") : null,
     );
   }
 
   renderActiveView() {
-    if (this.activeView === "ledger") return this.renderLedger();
-    if (this.activeView === "ready") return this.renderReadyPath();
+    if (this.activeView === "graph") return this.renderGraph();
+    if (this.activeView === "insights") return this.renderInsights();
     return this.renderBoard();
   }
 
@@ -281,22 +409,216 @@ export class BeadsBoardPanel {
     );
   }
 
-  renderLedger() {
-    const issues = this.getFilteredIssues();
+  renderGraph() {
+    const graph = buildDependencyGraph(this.getFilteredIssues());
+    const chain = this.getGraphChain(graph);
     return h("main", {
-      class: `view-layout ledger-layout${this.selectedIssue ? " has-selection" : ""}`,
+      class: `view-layout graph-layout${this.selectedIssue ? " has-selection" : ""}`,
       style: `--inspector-width:${this.inspectorWidth}px`,
     },
-      h("section", { class: "ledger-workspace" },
+      h("section", {
+        class: "graph-workspace",
+      },
         h("div", { class: "view-heading" },
-          h("div", {}, h("h1", {}, "Dependency ledger"), h("p", {}, "Ready work first, with blockers and downstream impact visible.")),
-          h("span", { class: "result-count" }, `${issues.length} issues`),
+          h("div", {}, h("h1", {}, "Dependency graph"), h("p", {}, "Blockers flow left to right — select an issue to trace its chain.")),
+          h("span", { class: "result-count" }, `${graph.nodes.length} ${graph.nodes.length === 1 ? "issue" : "issues"} · ${graph.edges.length} ${graph.edges.length === 1 ? "dependency" : "dependencies"}`),
         ),
-        h("div", { class: "ledger-scroll" },
-          h("div", { class: "ledger-table", "aria-label": "Beads issues" },
-            h("div", { class: "ledger-row ledger-head" },
-              h("span", {}, ""), h("span", {}, "ID"), h("span", {}, "Issue"), h("span", {}, "State"), h("span", {}, "Priority"), h("span", {}, "Links")),
-            issues.map((issue) => this.renderLedgerRow(issue)),
+        graph.nodes.length ? this.renderGraphCanvas(graph, chain) : this.renderGraphEmpty(),
+      ),
+      this.selectedIssue ? this.renderInspector(this.selectedIssue) : null,
+    );
+  }
+
+  renderGraphCanvas(graph, chain) {
+    const left = (id) => GRAPH_PADDING + graph.level.get(id) * (GRAPH_NODE_WIDTH + GRAPH_COL_GAP);
+    const top = (id) => GRAPH_PADDING + graph.row.get(id) * (GRAPH_NODE_MIN_HEIGHT + GRAPH_ROW_GAP);
+    const width = GRAPH_PADDING * 2 + graph.columns * GRAPH_NODE_WIDTH + Math.max(0, graph.columns - 1) * GRAPH_COL_GAP;
+    const initialHeight = GRAPH_PADDING * 2 + graph.rows * GRAPH_NODE_MIN_HEIGHT + Math.max(0, graph.rows - 1) * GRAPH_ROW_GAP;
+    const maskID = `beads-graph-card-mask-${++this.graphRenderSequence}`;
+
+    const edgeElements = graph.edges.map((edge) => {
+      const line = svg("path", { class: "graph-edge-line" });
+      const head = svg("path", { class: "graph-edge-head" });
+      const group = svg("g", { class: `graph-edge${this.edgeState(chain, edge)}` }, line, head);
+      return { edge, group, line, head };
+    });
+    const maskBackground = svg("rect", { x: 0, y: 0, width, height: initialHeight, fill: "white" });
+    const edgeMask = svg("mask", {
+      class: "graph-edge-mask",
+      id: maskID,
+      x: 0,
+      y: 0,
+      width,
+      height: initialHeight,
+      maskUnits: "userSpaceOnUse",
+      maskContentUnits: "userSpaceOnUse",
+    }, maskBackground);
+    const maskedEdges = svg("g", { mask: `url(#${maskID})` }, edgeElements.map(({ group }) => group));
+    const edgeLayer = svg("svg", {
+      class: "graph-edges",
+      width,
+      height: initialHeight,
+      viewBox: `0 0 ${width} ${initialHeight}`,
+    }, svg("defs", {}, edgeMask), maskedEdges);
+
+    const nodeElements = new Map(graph.nodes.map((issue) => [
+      issue.id,
+      this.renderGraphNode(issue, left(issue.id), top(issue.id), chain),
+    ]));
+    const canvas = h("div", {
+      class: "graph-canvas",
+      style: `width:${width}px;height:${initialHeight}px`,
+    }, edgeLayer, [...nodeElements.values()]);
+    queueMicrotask(() => this.layoutGraphCanvas(canvas, edgeLayer, edgeMask, maskBackground, graph, nodeElements, edgeElements, width));
+
+    return h("div", { class: "graph-scroll" },
+      canvas,
+    );
+  }
+
+  layoutGraphCanvas(canvas, edgeLayer, edgeMask, maskBackground, graph, nodeElements, edgeElements, width) {
+    if (!canvas.isConnected) return;
+
+    const positions = new Map();
+    let height = GRAPH_PADDING * 2;
+
+    for (let level = 0; level < graph.columns; level += 1) {
+      const issues = graph.nodes
+        .filter((issue) => graph.level.get(issue.id) === level)
+        .sort((a, b) => graph.row.get(a.id) - graph.row.get(b.id));
+      let y = GRAPH_PADDING;
+
+      for (const issue of issues) {
+        const node = nodeElements.get(issue.id);
+        if (!node) continue;
+        const x = GRAPH_PADDING + level * (GRAPH_NODE_WIDTH + GRAPH_COL_GAP);
+        node.style.left = `${x}px`;
+        node.style.top = `${y}px`;
+        const nodeHeight = Math.max(GRAPH_NODE_MIN_HEIGHT, node.offsetHeight);
+        positions.set(issue.id, { x, y, width: GRAPH_NODE_WIDTH, height: nodeHeight });
+        y += nodeHeight + GRAPH_ROW_GAP;
+      }
+
+      if (issues.length) height = Math.max(height, y - GRAPH_ROW_GAP + GRAPH_PADDING);
+    }
+
+    canvas.style.height = `${height}px`;
+    edgeLayer.setAttribute("width", String(width));
+    edgeLayer.setAttribute("height", String(height));
+    edgeLayer.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    edgeMask.setAttribute("width", String(width));
+    edgeMask.setAttribute("height", String(height));
+    maskBackground.setAttribute("width", String(width));
+    maskBackground.setAttribute("height", String(height));
+    edgeMask.replaceChildren(maskBackground, ...[...positions.values()].map((position) => svg("rect", {
+      x: position.x,
+      y: position.y,
+      width: position.width,
+      height: position.height,
+      rx: 8,
+      ry: 8,
+      fill: "black",
+    })));
+
+    for (const { edge, group, line, head } of edgeElements) {
+      const source = positions.get(edge.from);
+      const target = positions.get(edge.to);
+      if (!source || !target) {
+        group.setAttribute("display", "none");
+        continue;
+      }
+
+      const sx = source.x + source.width;
+      const sy = source.y + source.height / 2;
+      const tx = target.x;
+      const ty = target.y + target.height / 2;
+      const curve = Math.max(24, (tx - sx) * 0.5);
+      line.setAttribute("d", `M${sx},${sy} C${sx + curve},${sy} ${tx - curve},${ty} ${tx},${ty}`);
+      head.setAttribute("d", `M${tx - 7},${ty - 4} L${tx},${ty} L${tx - 7},${ty + 4} Z`);
+    }
+  }
+
+  renderGraphNode(issue, x, y, chain) {
+    const dependents = issue.dependent_count || 0;
+    return h("button", {
+      class: `graph-node priority-${issue.priority ?? "unknown"} status-${issue.status}${issue.ready ? " is-ready" : ""}${this.selectedIssue?.id === issue.id ? " is-selected" : ""}${this.nodeState(chain, issue.id)}`,
+      style: `left:${x}px;top:${y}px;width:${GRAPH_NODE_WIDTH}px;min-height:${GRAPH_NODE_MIN_HEIGHT}px`,
+      title: issue.title,
+      onclick: () => this.selectIssue(issue),
+    },
+      h("div", { class: "graph-node-top" },
+        h("span", { class: "issue-id" }, issue.id),
+        h("span", { class: `priority priority-${issue.priority ?? "unknown"}` }, getPriorityLabel(issue.priority)),
+      ),
+      h("div", { class: "graph-node-title" }, issue.title),
+      h("div", { class: "graph-node-foot" },
+        issue.ready ? h("span", { class: "badge badge-ready" }, "Ready") : h("span", { class: `badge status-${issue.status}` }, getStatusLabel(issue.status)),
+        dependents ? h("span", { class: "muted" }, `unblocks ${dependents}`) : null,
+      ),
+    );
+  }
+
+  renderGraphEmpty() {
+    return h("div", { class: "graph-empty" },
+      icon("rectangle3group", 26),
+      h("div", { class: "empty-title" }, "No matching issues"),
+      h("div", { class: "empty-copy" }, "Try a different filter."),
+    );
+  }
+
+  getGraphChain(graph) {
+    const start = this.selectedIssue?.id;
+    if (!start || !graph.blockers) return null;
+    if (!graph.nodes.some((issue) => issue.id === start)) return null;
+    const chain = new Set([start]);
+    const walk = (id, map) => {
+      for (const next of map.get(id) ?? []) {
+        if (chain.has(next)) continue;
+        chain.add(next);
+        walk(next, map);
+      }
+    };
+    walk(start, graph.blockers);
+    walk(start, graph.dependents);
+    return chain;
+  }
+
+  nodeState(chain, id) {
+    if (!chain) return "";
+    return chain.has(id) ? " is-active" : " is-dim";
+  }
+
+  edgeState(chain, edge) {
+    if (!chain) return "";
+    return chain.has(edge.from) && chain.has(edge.to) ? " is-active" : " is-dim";
+  }
+
+  renderInsights() {
+    const insights = buildInsights(this.getFilteredIssues());
+    return h("main", {
+      class: `view-layout insights-layout${this.selectedIssue ? " has-selection" : ""}`,
+      style: `--inspector-width:${this.inspectorWidth}px`,
+    },
+      h("section", { class: "insights-workspace" },
+        h("div", { class: "view-heading" },
+          h("div", {}, h("h1", {}, "Project health"), h("p", {}, "Where work is stuck, and what unblocks the most.")),
+          h("span", { class: "result-count" }, `${insights.metrics.total} issues`),
+        ),
+        h("div", { class: "insights-body" },
+          this.renderMetricTiles(insights.metrics),
+          h("div", { class: "insights-grid" },
+            this.renderBottlenecks(insights.bottlenecks),
+            this.renderWaiting(insights.waiting),
+            this.renderIssueListCard("Ready to start", "No unresolved blockers", insights.ready,
+              (issue) => h("span", { class: `priority priority-${issue.priority ?? "unknown"}` }, getPriorityLabel(issue.priority)),
+              "Nothing is ready right now."),
+            this.renderIssueListCard("Stale", "Untouched the longest", insights.stale,
+              (issue) => h("span", { class: "muted" }, getIssueAge(issue) || "—"),
+              "No active issues."),
+            this.renderDistribution("Priority", insights.priorityDist, (bucket) =>
+              h("span", { class: `priority priority-${bucket.value ?? "unknown"}` }, bucket.label)),
+            this.renderDistribution("Status", insights.statusDist.map((entry) => ({ ...entry, key: entry.status })), (entry) =>
+              h("span", { class: `badge status-${entry.status}` }, getStatusLabel(entry.status))),
           ),
         ),
       ),
@@ -304,75 +626,121 @@ export class BeadsBoardPanel {
     );
   }
 
-  renderLedgerRow(issue) {
-    const links = `${issue.dependency_count} → ${issue.dependent_count}`;
+  renderMetricTiles(metrics) {
+    const tiles = [
+      { value: metrics.total, label: "total" },
+      { value: metrics.active, label: "active" },
+      { value: metrics.ready, label: "ready", tone: "ready" },
+      { value: metrics.waiting, label: "blocked", tone: "blocked" },
+      { value: `${metrics.closedPct}%`, label: "closed" },
+    ];
+    return h("div", { class: "metric-tiles" }, tiles.map((tile) => h("div", {
+      class: `metric-tile${tile.tone ? ` tone-${tile.tone}` : ""}`,
+    }, h("b", {}, tile.value), h("span", {}, tile.label))));
+  }
+
+  renderBottlenecks(entries) {
+    return this.renderInsightCard("Bottlenecks", "Finishing these frees the most work", entries.length,
+      entries.slice(0, INSIGHT_LIST_LIMIT).map((entry) => this.renderInsightRow(entry.issue,
+        h("span", { class: "lever" }, `blocks ${entry.count}`))),
+      "Nothing is blocking other work.");
+  }
+
+  renderWaiting(entries) {
+    return this.renderInsightCard("Blocked & waiting", "Held up by open blockers", entries.length,
+      entries.slice(0, INSIGHT_LIST_LIMIT).map((entry) => h("div", { class: "waiting-item" },
+        h("button", {
+          class: `waiting-head${this.selectedIssue?.id === entry.issue.id ? " is-selected" : ""}`,
+          onclick: () => this.selectIssue(entry.issue),
+        },
+          h("span", { class: `state-dot status-${entry.issue.status}` }),
+          h("span", { class: "insight-main" }, h("b", {}, entry.issue.title), h("small", {}, entry.issue.id)),
+          h("span", { class: "lever" }, `${entry.blockers.length} blocking`),
+        ),
+        h("div", { class: "chip-row" }, entry.blockers.map((blocker) => this.renderDepChip(blocker))),
+      )),
+      "Nothing is waiting on an open blocker.");
+  }
+
+  renderIssueListCard(title, subtitle, issues, trailing, emptyText) {
+    return this.renderInsightCard(title, subtitle, issues.length,
+      issues.slice(0, INSIGHT_LIST_LIMIT).map((issue) => this.renderInsightRow(issue, trailing(issue))),
+      emptyText);
+  }
+
+  renderInsightRow(issue, trailing) {
     return h("button", {
-      class: `ledger-row${this.selectedIssue?.id === issue.id ? " is-selected" : ""}`,
+      class: `insight-row${this.selectedIssue?.id === issue.id ? " is-selected" : ""}`,
+      onclick: () => this.selectIssue(issue),
+    },
+      h("span", { class: `state-dot status-${issue.status}` }),
+      h("span", { class: "insight-main" }, h("b", {}, issue.title), h("small", {}, issue.id)),
+      trailing || null,
+    );
+  }
+
+  renderDistribution(title, buckets, label) {
+    const max = Math.max(1, ...buckets.map((bucket) => bucket.count));
+    return h("section", { class: "insights-card" },
+      h("div", { class: "insights-card-head" }, h("h2", {}, title)),
+      h("div", { class: "insights-card-body" }, buckets.map((bucket) => h("div", { class: "bar-row" },
+        h("span", { class: "bar-label" }, label(bucket)),
+        h("div", { class: "bar-track" }, h("i", { style: `width:${Math.round((bucket.count / max) * 100)}%` })),
+        h("span", { class: "bar-count" }, bucket.count),
+      ))),
+    );
+  }
+
+  renderInsightCard(title, subtitle, count, rows, emptyText) {
+    return h("section", { class: "insights-card" },
+      h("div", { class: "insights-card-head" },
+        h("h2", {}, title),
+        count != null ? h("span", { class: "insights-card-count" }, count) : null,
+      ),
+      subtitle ? h("p", { class: "insights-card-sub" }, subtitle) : null,
+      rows.length
+        ? h("div", { class: "insights-card-body" }, rows)
+        : h("div", { class: "insights-empty" }, emptyText),
+    );
+  }
+
+  renderDepChip(issue) {
+    return h("button", {
+      class: `dep-chip${this.selectedIssue?.id === issue.id ? " is-selected" : ""}`,
+      title: issue.title,
       onclick: () => this.selectIssue(issue),
     },
       h("span", { class: `state-dot status-${issue.status}` }),
       h("span", { class: "issue-id" }, issue.id),
-      h("span", { class: "ledger-issue" }, h("b", {}, issue.title), h("small", {}, [issue.issue_type, ...issue.labels].slice(0, 3).join(" · "))),
-      h("span", {}, h("span", { class: `badge status-${issue.status}${issue.ready ? " badge-ready" : ""}` }, issue.ready ? "Ready" : getStatusLabel(issue.status))),
-      h("span", {}, h("span", { class: `priority priority-${issue.priority ?? "unknown"}` }, getPriorityLabel(issue.priority))),
-      h("span", { class: "dependency-links" }, links),
+      h("span", { class: "dep-chip-title" }, issue.title),
     );
   }
 
-  renderReadyPath() {
-    const issues = this.getReadyPathIssues();
-    const selected = issues.find((issue) => issue.id === this.selectedIssue?.id) || issues[0] || null;
-    return h("main", { class: "ready-layout" },
-      h("section", { class: "ready-queue" },
-        h("div", { class: "view-heading" }, h("div", {}, h("h1", {}, "What can move next?"), h("p", {}, "Ranked by readiness, priority, and downstream impact."))),
-        h("div", { class: "ready-list" }, issues.map((issue, index) => h("button", {
-          class: `ready-item${selected?.id === issue.id ? " is-selected" : ""}`,
-          onclick: () => this.selectIssue(issue),
-        },
-          h("span", { class: "ready-rank" }, index + 1),
-          h("span", { class: "ready-copy" }, h("b", {}, issue.title), h("small", {}, this.getReadyReason(issue))),
-          h("span", { class: "issue-id" }, getPriorityLabel(issue.priority)),
-        ))),
-      ),
-      selected ? this.renderReadyFocus(selected) : this.renderNoMatches(),
+  renderRelations(issue) {
+    const blockerLinks = getBlockerLinks(issue, this.index);
+    const dependentLinks = getDependentLinks(issue, this.index);
+    const blockedBy = blockerLinks.filter((link) => link.type === BLOCKING_EDGE);
+    const unblocks = dependentLinks.filter((link) => link.type === BLOCKING_EDGE);
+    const related = new Map();
+    for (const link of [...blockerLinks, ...dependentLinks]) {
+      if (link.type !== BLOCKING_EDGE) related.set(link.issue.id, link.issue);
+    }
+    if (!blockedBy.length && !unblocks.length && !related.size) return null;
+
+    return h("section", { class: "detail-section" },
+      h("h2", {}, "Dependencies"),
+      this.renderRelationGroup("Blocked by", blockedBy.map((link) => link.issue)),
+      this.renderRelationGroup("Unblocks", unblocks.map((link) => link.issue)),
+      this.renderRelationGroup("Related", [...related.values()]),
     );
   }
 
-  renderReadyFocus(issue) {
-    return h("section", { class: "ready-focus" }, h("div", { class: "focus-inner" },
-      h("div", { class: "detail-kicker" }, `${issue.id} · NEXT UP`),
-      h("h1", {}, issue.title),
-      this.renderBadges(issue),
-      h("section", { class: "detail-section" }, h("h2", {}, "Why this is next"), h("p", {}, this.getReadyReason(issue))),
-      h("section", { class: "detail-section" },
-        h("h2", {}, "Work path"),
-        h("div", { class: "work-path" },
-          h("div", { class: "path-card" }, h("small", {}, "BLOCKED BY"), h("b", {}, issue.dependency_count ? `${issue.dependency_count} dependencies` : "No blockers")),
-          h("span", { class: "path-arrow" }, "→"),
-          h("div", { class: "path-card" }, h("small", {}, "UNLOCKS"), h("b", {}, `${issue.dependent_count} downstream issues`)),
-        ),
-      ),
-      issue.acceptance_criteria ? this.renderField("Acceptance", issue.acceptance_criteria) : null,
-      issue.description ? this.renderField("Description", issue.description) : null,
-    ));
-  }
-
-  getReadyPathIssues() {
-    return [...this.getFilteredIssues()]
-      .filter((issue) => issue.status !== "closed")
-      .sort((a, b) => {
-        if (a.ready !== b.ready) return a.ready ? -1 : 1;
-        const priority = (a.priority ?? 99) - (b.priority ?? 99);
-        if (priority) return priority;
-        return (b.dependent_count || 0) - (a.dependent_count || 0);
-      });
-  }
-
-  getReadyReason(issue) {
-    if (!issue.ready && issue.status === "blocked") return `${issue.dependency_count || "Unresolved"} blockers need attention`;
-    if (!issue.ready) return `${getStatusLabel(issue.status)} · ${issue.dependent_count} downstream issues`;
-    if (issue.dependent_count > 0) return `Ready now · unlocks ${issue.dependent_count} downstream issues`;
-    return "Ready now · no unresolved dependencies";
+  renderRelationGroup(label, issues) {
+    if (!issues.length) return null;
+    return h("div", { class: "relation-group" },
+      h("small", {}, label),
+      h("div", { class: "chip-row" }, issues.map((issue) => this.renderDepChip(issue))),
+    );
   }
 
   renderInspector(issue) {
@@ -396,26 +764,7 @@ export class BeadsBoardPanel {
         this.renderBadges(issue),
       ),
       h("div", { class: "inspector-body" },
-        this.renderField("Description", issue.description),
-        this.renderField("Design", issue.design),
-        this.renderField("Acceptance", issue.acceptance_criteria),
-        this.renderField("Notes", issue.notes),
-        this.renderStats(issue),
-      ),
-    );
-  }
-
-  renderDetailPage() {
-    const issue = this.selectedIssue;
-    return h("div", { class: "detail-page" },
-      h("header", { class: "detail-topbar" },
-        h("button", { class: "back-button", onclick: () => { this.showDetail = false; this.render(); } }, icon("chevronLeft", 14), this.getActiveViewLabel()),
-        h("button", { class: "icon-button", title: "Refresh beads", onclick: () => this.refresh(true) }, icon("refresh", 13)),
-      ),
-      h("div", { class: "detail-page-body" },
-        h("div", { class: "detail-kicker" }, issue.id),
-        h("h1", {}, issue.title),
-        this.renderBadges(issue),
+        this.renderRelations(issue),
         this.renderField("Description", issue.description),
         this.renderField("Design", issue.design),
         this.renderField("Acceptance", issue.acceptance_criteria),
@@ -455,15 +804,32 @@ export class BeadsBoardPanel {
   }
 
   renderNotice() {
-    return h("div", { class: "notice" }, icon("alertCircle", 14), h("span", {}, this.error));
+    const message = this.usingCache ? `Showing cached data. ${this.error}` : this.error;
+    return h("div", { class: "notice" }, icon("alertCircle", 14), h("span", {}, message));
+  }
+
+  renderLoading() {
+    return h("div", {
+      class: "loading-state",
+      role: "status",
+      "aria-live": "polite",
+      "aria-label": "Loading beads",
+    },
+      h("span", { class: "loading-spinner", "aria-hidden": "true" }),
+      h("div", { class: "empty-title" }, "Loading beads…"),
+      h("div", { class: "empty-copy" }, "Checking the workspace and its cached issue data."),
+    );
   }
 
   renderEmpty() {
+    const hasBeadsSource = this.source !== "none";
     return h("div", { class: "empty-state" },
       icon("rectangle3group", 28),
-      h("div", { class: "empty-title" }, this.filterText ? "No matching issues" : "No beads found"),
-      h("div", { class: "empty-copy" }, this.filterText ? "Try a different filter." : "Open a workspace with a Beads database or exported issues.jsonl."),
-      !this.filterText ? h("div", { class: "debug" },
+      h("div", { class: "empty-title" }, this.filterText ? "No matching issues" : hasBeadsSource ? "No issues yet" : "No beads found"),
+      h("div", { class: "empty-copy" }, this.filterText
+        ? "Try a different filter."
+        : hasBeadsSource ? "This Beads workspace does not contain any issues yet." : "Open a workspace with a Beads database or exported issues.jsonl."),
+      !this.filterText && !hasBeadsSource ? h("div", { class: "debug" },
         h("div", {}, `project: ${this.projectName || "unknown"}`),
         h("div", {}, `workspace: ${this.workspacePath || "not set"}`),
         h("div", {}, `source: ${this.source}`),
@@ -471,27 +837,16 @@ export class BeadsBoardPanel {
     );
   }
 
-  renderNoMatches() {
-    return h("div", { class: "empty-state" }, h("div", { class: "empty-title" }, "No matching active issues"), h("div", { class: "empty-copy" }, "Change the filter to rebuild the ready path."));
-  }
-
   selectIssue(issue) {
     this.selectedIssue = issue;
-    this.showDetail = !this.isTab;
     this.render();
   }
 
   setView(view) {
     if (!VIEWS.some((item) => item.id === view)) return;
     this.activeView = view;
-    this.showDetail = false;
-    if (view === "ready" && !this.selectedIssue) this.selectedIssue = this.getReadyPathIssues()[0] || null;
     this.saveLayout();
     this.render();
-  }
-
-  getActiveViewLabel() {
-    return VIEWS.find((view) => view.id === this.activeView)?.label || "Issues";
   }
 
   toggleColumn(columnID) {
