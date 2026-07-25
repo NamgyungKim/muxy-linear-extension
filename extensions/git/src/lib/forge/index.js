@@ -63,3 +63,6 @@ export const prReady = async (cwd, opts) => (await backendFor(cwd)).prReady(cwd,
 export const prCheckout = async (cwd, number) => (await backendFor(cwd)).prCheckout(cwd, number);
 export const prepareWorktreeBranch = async (cwd, number) => (await backendFor(cwd)).prepareWorktreeBranch(cwd, number);
 export const prDiff = async (cwd, number) => (await backendFor(cwd)).prDiff(cwd, number);
+export const runList = async (cwd, opts) => (await backendFor(cwd)).runList(cwd, opts);
+export const runRerun = async (cwd, id, opts) => (await backendFor(cwd)).runRerun(cwd, id, opts);
+export const runCancel = async (cwd, id) => (await backendFor(cwd)).runCancel(cwd, id);

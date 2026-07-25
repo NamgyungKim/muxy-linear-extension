@@ -1,6 +1,6 @@
 {
   "name": "files",
-  "version": "1.11.0",
+  "version": "1.20.2",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/build-run-scripts.mjs",
@@ -36,6 +36,7 @@
     "@lezer/highlight": "^1.2.3",
     "jsonc-parser": "^3.3.1",
     "mermaid": "^11.15.0",
+    "pdfjs-dist": "^6.1.200",
     "web-tree-sitter": "^0.26.9",
     "yaml": "^2.9.0"
   },
@@ -75,7 +76,12 @@
     "events": [
       "file.changed",
       "worktree.switched",
-      "project.switched"
+      "project.switched",
+      "tab.created",
+      "tab.updated",
+      "tab.closed",
+      "tab.focused",
+      "panel.opened"
     ],
     "panels": [
       {
@@ -149,7 +155,7 @@
         "subtitle": "Switch the file tree between stroke and colored icons"
       },
       {
-        "id": "find-in-files",
+        "id": "files-find-in-files",
         "title": "Files: Find in Files…",
         "subtitle": "Search text across all workspace files",
         "defaultShortcut": "cmd+shift+f",

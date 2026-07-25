@@ -88,8 +88,8 @@ Every extension must carry a `marketplace` block in `manifest.json` with a
   "homepage": "https://example.com",
   "repository": "https://github.com/you/your-ext",
   "categories": ["git", "productivity"],
-  "icon": "assets/icon.svg",
-  "screenshots": ["assets/screenshot-1.png", "assets/screenshot-2.png"]
+  "icon": "icon.svg",
+  "screenshots": ["screenshots/screenshot-1.png", "screenshots/screenshot-2.png"]
 }
 ```
 
@@ -102,7 +102,7 @@ This block is used only for the marketplace listing; the app loader ignores it.
 
 ### Screenshots — at least one required
 
-- **PNG, exactly 1600×1000 (16:10)** — Muxy's window aspect.
+- **PNG, 16:10 or 16:9 aspect ratio**.
 - 1 to 6 screenshots, each ≤ 3 MB.
 
 The icon and screenshots are uploaded to the marketplace alongside your signed

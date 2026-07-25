@@ -1,6 +1,7 @@
 import { clear, h, readPref, writePref } from "@/lib/dom";
 import { computeLanes, toCommitNode } from "@/lib/graph";
-import { alertError, activeWorktreePath, commitAll, confirmAction, hasPendingChanges, isBusy, onBusyChange, runPinned, toViewStatus, tryAction, } from "@/lib/git";
+import { alertError, activeWorktreePath, commitAll, confirmAction, hasPendingChanges, isBusy, listBranches, onBusyChange, openIncomingDiff, openUrl, runPinned, toViewStatus, tryAction, } from "@/lib/git";
+import { repoWebUrl } from "@/lib/repo-web";
 import { checkoutPr, checkoutPrWorktree, cleanupBranch, closePr, confirmOpenExistingPr, createPr, mergePr, parentDir, readyPr, removeWorktreeOrBranch, worktreePathIn, } from "@/lib/pr";
 import * as cmd from "@/lib/cmd";
 import { icon } from "@/lib/icons";
@@ -8,17 +9,21 @@ import { button, emptyState, iconButton, loadingOverlay } from "@/ui/shared";
 import { renderBranchSwitcher, renderBranchTab } from "@/panel/branch";
 import { renderHistoryTab } from "@/panel/history";
 import { renderPrsTab } from "@/panel/prs";
+import { renderActionsTab } from "@/panel/actions";
 const TAB_KEY = "muxy.git.panel.tab";
 const FILTER_KEY = "muxy.git.prs.filter";
 const PR_CACHE_KEY = "muxy.git.prs.cache";
 const WORKTREE_DIR_KEY = "muxy.git.worktree.dir";
+const RUN_FILTER_KEY = "muxy.git.runs.filter";
 const PAGE = 50;
 const PR_LIMIT = 50;
+const RUN_LIMIT = 30;
 function emptyCreateForm() {
     return {
         title: "",
         body: "",
         newBranch: "",
+        baseBranch: "",
         branchEdited: false,
         draft: false,
         advanced: false,
@@ -49,7 +54,7 @@ async function chooseReconcile() {
         const choice = await muxy.dialog.confirm({
             title: "Branch has diverged",
             message: "Your branch and the remote each have new commits. Choose how to combine them.",
-            buttons: ["Merge", "Rebase", "Cancel"],
+            buttons: ["Merge", "Rebase", "Review changes…", "Cancel"],
             default: "Cancel",
             cancel: "Cancel",
             style: "warning",
@@ -58,6 +63,8 @@ async function chooseReconcile() {
             return "merge";
         if (choice === "Rebase")
             return "rebase";
+        if (choice === "Review changes…")
+            return "review";
         return null;
     }
     catch {
@@ -85,8 +92,16 @@ export class GitPanelApp {
     prRefreshing = false;
     prStarted = false;
     prRowPending = new Map();
+    runList = { kind: "idle" };
+    runListLoadId = 0;
+    runListRefreshing = false;
+    runStarted = false;
+    runFilter = readPref(RUN_FILTER_KEY, "all");
+    runWorkflow = "";
+    runRowPending = new Map();
     graph = { rows: [], hasMore: false, loading: true };
     createForm = emptyCreateForm();
+    baseBranches = [];
     worktreeForm = null;
     refreshId = 0;
     statusCache = new Map();
@@ -105,6 +120,8 @@ export class GitPanelApp {
         void this.resetGraph(false);
         if (this.tab === "prs")
             void this.hydratePrList();
+        if (this.tab === "actions")
+            void this.loadRunList(false);
         this.disposers = [
             muxy.events.subscribe("project.switched", () => void this.switchScope()),
             muxy.events.subscribe("worktree.switched", () => void this.switchScope()),
@@ -129,7 +146,7 @@ export class GitPanelApp {
             clearTimeout(this.reconcileTimer);
     }
     render() {
-        const active = document.activeElement;
+        const active = document.hasFocus() ? document.activeElement : null;
         const focusKey = active?.getAttribute?.("data-focus-key");
         const selStart = focusKey ? active.selectionStart : null;
         const selEnd = focusKey ? active.selectionEnd : null;
@@ -147,11 +164,13 @@ export class GitPanelApp {
         }
         const status = this.repo.status;
         const changes = status.staged.length + status.unstaged.length;
-        const panel = h("div", { class: "flex h-full min-h-0 flex-col" }, h("header", { class: "flex shrink-0 items-center border-b border-border pr-1" }, h("div", { class: "min-w-0 flex-1" }, renderBranchSwitcher(this, status)), iconButton("Refresh", "refresh", () => this.runRefresh())), this.renderTabs(changes), this.tab === "branch"
+        const panel = h("div", { class: "flex h-full min-h-0 flex-col" }, h("header", { class: "flex shrink-0 items-center border-b border-border pr-1" }, h("div", { class: "min-w-0 flex-1" }, renderBranchSwitcher(this, status)), iconButton("Refresh", "refresh", () => this.runRefresh()), iconButton("Open repository in browser", "external", () => void this.openRepoInBrowser())), this.renderTabs(changes), this.tab === "branch"
             ? renderBranchTab(this, status)
             : this.tab === "prs"
                 ? renderPrsTab(this, status)
-                : renderHistoryTab(this));
+                : this.tab === "actions"
+                    ? renderActionsTab(this)
+                    : renderHistoryTab(this));
         const shell = h("div", { class: "relative flex h-screen flex-col" }, panel);
         if (this.switching)
             shell.appendChild(loadingOverlay("Loading worktree..."));
@@ -173,6 +192,8 @@ export class GitPanelApp {
         this.render();
         if (tab === "prs")
             void this.hydratePrList();
+        if (tab === "actions" && !this.runStarted)
+            void this.loadRunList(false);
     }
     setMessage(message) {
         this.message = message;
@@ -314,6 +335,8 @@ export class GitPanelApp {
             if (divergence.ahead === 0)
                 return cmd.reconcile(cwd, "ff");
             const mode = await chooseReconcile();
+            if (mode === "review")
+                return openIncomingDiff();
             if (mode)
                 return cmd.reconcile(cwd, mode);
         }), "Pull failed");
@@ -369,6 +392,15 @@ export class GitPanelApp {
         if (!confirmed)
             return false;
         return tryAction(() => runPinned((cwd) => cmd.branchDelete(cwd, name, true)), "Could not delete branch");
+    }
+    async loadBaseBranches() {
+        if (this.baseBranches.length > 0)
+            return;
+        const result = await listBranches().catch(() => null);
+        if (!result)
+            return;
+        this.baseBranches = result.branches;
+        this.render();
     }
     async createPullRequest(input) {
         try {
@@ -617,10 +649,82 @@ export class GitPanelApp {
             this.publishGraph(this.graphCommits, false, false);
         }
     }
+    async loadRunList(fresh = false) {
+        const id = ++this.runListLoadId;
+        this.runStarted = true;
+        this.runListRefreshing = true;
+        if (fresh || this.runList.kind !== "ready")
+            this.runList = { kind: "loading" };
+        this.render();
+        try {
+            const cwd = await activeWorktreePath();
+            const runs = await cmd.runList(cwd, { limit: RUN_LIMIT });
+            if (this.runListLoadId !== id)
+                return;
+            this.runList = { kind: "ready", runs };
+        }
+        catch (err) {
+            if (this.runListLoadId !== id)
+                return;
+            const message = err instanceof Error ? err.message : String(err);
+            this.runList = { kind: "error", message: message.trim() || "Could not load workflow runs." };
+        }
+        finally {
+            if (this.runListLoadId !== id)
+                return;
+            this.runListRefreshing = false;
+            this.render();
+        }
+    }
+    setRunFilter(filter) {
+        this.runFilter = filter;
+        writePref(RUN_FILTER_KEY, filter);
+        this.render();
+    }
+    setRunWorkflow(workflow) {
+        this.runWorkflow = workflow;
+        this.render();
+    }
+    async runRunRowAction(id, action, fn, title) {
+        this.runRowPending.set(id, action);
+        this.render();
+        try {
+            await fn();
+            await this.loadRunList(true);
+        }
+        catch (err) {
+            await alertError(title, err);
+        }
+        finally {
+            this.runRowPending.delete(id);
+            this.render();
+        }
+    }
+    async rerunRow(id, failedOnly) {
+        await this.runRunRowAction(id, failedOnly ? "rerun-failed" : "rerun", () => runPinned((cwd) => cmd.runRerun(cwd, id, { failedOnly })), `Could not rerun workflow run #${id}`);
+    }
+    async cancelRunRow(id) {
+        const ok = await confirmAction({
+            title: "Cancel workflow run?",
+            message: `This cancels the in-progress workflow run #${id}.`,
+            confirmLabel: "Cancel run",
+        });
+        if (!ok)
+            return;
+        await this.runRunRowAction(id, "cancel", () => runPinned((cwd) => cmd.runCancel(cwd, id)), `Could not cancel workflow run #${id}`);
+    }
+    async openRepoInBrowser() {
+        const url = await repoWebUrl();
+        if (url)
+            openUrl(url);
+        else
+            await alertError("Could not open repository", new Error("No web URL found for the origin remote."));
+    }
     renderTabs(changes) {
         const tabs = [
             { id: "branch", label: "Branch", iconName: "branch" },
             { id: "prs", label: "PRs", iconName: "pr" },
+            { id: "actions", label: "Actions", iconName: "play" },
             { id: "history", label: "History", iconName: "history" },
         ];
         return h("div", { class: "flex shrink-0 border-b border-border" }, tabs.map((tab) => h("button", {
@@ -738,6 +842,8 @@ export class GitPanelApp {
     reloadPrListOnScopeChange() {
         if (this.prStarted)
             void this.loadPrList(false);
+        if (this.runStarted)
+            void this.loadRunList(true);
     }
     async runRowAction(number, action, fn, title) {
         this.prRowPending.set(number, action);

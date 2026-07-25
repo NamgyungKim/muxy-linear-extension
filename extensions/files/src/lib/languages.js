@@ -8,8 +8,6 @@ export function is_markdown(path) {
   return MARKDOWN_EXT.has(extname(path));
 }
 
-// Raster image formats the viewer renders from bytes. SVG is deliberately
-// excluded: it stays editable as XML in the code editor, with a "View" toggle.
 const IMAGE_MIME = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -32,6 +30,16 @@ export function image_mime(path) {
 
 export function is_svg(path) {
   return extname(path) === ".svg";
+}
+
+export function is_pdf(path) {
+  return extname(path) === ".pdf";
+}
+
+const HTML_EXT = new Set([".html", ".htm"]);
+
+export function is_html(path) {
+  return HTML_EXT.has(extname(path));
 }
 
 const RICH_LANGUAGES = {

@@ -1,8 +1,3 @@
-// User preference for the file-tree icon set. "stroke" is the original
-// single-color stroke-path icons that track the live theme; "material" is the
-// branded colored Material Icon Theme set. Persisted in localStorage and
-// broadcast so the panel re-renders when it changes.
-
 export const ICON_THEMES = ["stroke", "material"];
 export const DEFAULT_ICON_THEME = "stroke";
 
@@ -29,7 +24,10 @@ export function save_icon_theme(theme) {
 }
 
 export function subscribe_icon_theme(callback) {
-  const reload = () => callback(load_icon_theme());
+  const reload = (event) => {
+    if (event?.type === "storage" && event.key !== null && event.key !== STORAGE_KEY) return;
+    callback(load_icon_theme());
+  };
   window.addEventListener("storage", reload);
   window.addEventListener(SYNC_EVENT, reload);
   return () => {

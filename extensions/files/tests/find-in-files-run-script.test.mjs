@@ -30,7 +30,7 @@ test("Find in Files runScript opens the modal before the script returns", async 
 
 test("Find in Files command opens through runScript", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  const command = manifest.muxy.commands.find((item) => item.id === "find-in-files");
+  const command = manifest.muxy.commands.find((item) => item.id === "files-find-in-files");
 
   assert.deepEqual(command.action, { kind: "runScript", script: "scripts/find-in-files.js" });
   assert.equal("background" in manifest.muxy, false);

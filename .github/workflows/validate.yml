@@ -38,6 +38,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Need the base commit to diff against so we can isolate the
+          # extension(s) this PR actually changed (see "Determine changed
+          # extensions" below).
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -48,14 +53,53 @@ jobs:
       - name: Install tooling
         run: npm ci
 
-      - name: Build all extensions
-        run: node scripts/build.mjs
+      - name: Determine changed extensions
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
 
-      - name: Validate all extensions
-        run: node scripts/validate.mjs
+          # Diff against the MERGE BASE, not the base tip, so we count only what
+          # this PR itself changed (not extensions that landed on main after the
+          # PR forked).
+          if mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null)"; then
+            diff_base="$mb"
+          else
+            echo "::warning::no merge base for $BASE_SHA..$HEAD_SHA; comparing against the base tip directly."
+            diff_base="$BASE_SHA"
+          fi
+
+          # Top-level extension dir names whose files changed in this PR.
+          changed="$(git diff --name-only "$diff_base" "$HEAD_SHA" -- extensions/ \
+            | awk -F/ 'NF>1 && $1=="extensions" {print $2}' \
+            | sort -u)"
+
+          # Tooling-only PRs (no extensions/** change) build and validate
+          # everything, since a scripts/** or workflow change can affect any
+          # extension. Otherwise, target only the changed extension(s).
+          if [ -z "$changed" ]; then
+            echo "No extension changed (tooling-only PR); building and validating all."
+            echo "names=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed extensions:"
+            printf '  - %s\n' $changed
+            echo "names=$(printf '%s' "$changed" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build changed extensions
+        run: node scripts/build.mjs ${{ steps.changed.outputs.names }}
+
+      - name: Validate changed extensions
+        run: node scripts/validate.mjs ${{ steps.changed.outputs.names }}
 
       - name: Dry-run pack (prove deterministic zip + hash)
-        run: node scripts/pack.mjs --dry-run
+        # Pack only the extension(s) this PR built (same target list as the build
+        # and validate steps). Packing all extensions here would fail on any whose
+        # `dist/` wasn't built in this run. Empty names => tooling-only PR, which
+        # built everything above, so pack everything to match.
+        run: node scripts/pack.mjs --dry-run ${{ steps.changed.outputs.names }}
 
   pr-meta:
     name: Enforce version bump and PR title
