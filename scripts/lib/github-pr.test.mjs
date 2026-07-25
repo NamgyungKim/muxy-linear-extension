@@ -62,6 +62,15 @@ test("parsePullRequestContext accepts only exact immutable repository context", 
   );
 });
 
+test("parsePullRequestContext tolerates a deleted head repository", () => {
+  const context = parsePullRequestContext(
+    pullRequestEvent({ head: { sha: HEAD_SHA, repo: null } }),
+  );
+  assert.equal(context.headRepository, null);
+  assert.equal(context.headSha, HEAD_SHA);
+  assert.equal(context.baseRepository, "muxy-app/extensions");
+});
+
 test("changedExtensionNames handles renames and rejects unsafe directories", () => {
   assert.deepEqual(
     changedExtensionNames([
@@ -78,6 +87,17 @@ test("changedExtensionNames handles renames and rejects unsafe directories", () 
   assert.throws(
     () => changedExtensionNames([{ filename: "extensions/bad name/index.js" }]),
     /invalid extension directory/,
+  );
+});
+
+test("changedExtensionNames ignores files that sit directly in extensions/", () => {
+  assert.deepEqual(
+    changedExtensionNames([
+      { filename: "extensions/.gitkeep" },
+      { filename: "extensions/README.md" },
+      { filename: "extensions/demo/src/index.js" },
+    ]),
+    ["demo"],
   );
 });
 

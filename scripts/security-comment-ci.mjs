@@ -20,7 +20,8 @@ import {
 
 const MAX_COMMENT_PAGES = 30;
 const MAX_CHANGED_EXTENSIONS = 10;
-const MAX_SOURCE_FILES_PER_EXTENSION = 500;
+const MAX_SOURCE_FILES_PER_EXTENSION = 200;
+const MAX_TOTAL_SOURCE_REQUESTS = 400;
 const MAX_SOURCE_FILE_BYTES = 1024 * 1024;
 const MAX_TOTAL_SOURCE_BYTES = 10 * 1024 * 1024;
 const MAX_COMMENT_BYTES = 60 * 1024;
@@ -52,7 +53,7 @@ async function listIssueComments(api, context) {
   );
 }
 
-async function fetchExtensionSource(api, context, tree, name) {
+async function fetchExtensionSource(api, context, tree, name, budget) {
   const prefix = `extensions/${name}/`;
   const candidates = tree.filter((entry) => {
     if (!entry || entry.type !== "blob" || typeof entry.path !== "string") {
@@ -64,17 +65,13 @@ async function fetchExtensionSource(api, context, tree, name) {
     );
   });
 
-  if (candidates.length > MAX_SOURCE_FILES_PER_EXTENSION) {
-    throw new Error(
-      `${name} contains more than ${MAX_SOURCE_FILES_PER_EXTENSION} scannable source files`,
-    );
-  }
-
   const files = [];
   let totalBytes = 0;
   let skippedSourceFiles = 0;
   for (const entry of candidates) {
     if (
+      files.length >= MAX_SOURCE_FILES_PER_EXTENSION ||
+      budget.remainingRequests <= 0 ||
       !REGULAR_FILE_MODES.has(entry.mode) ||
       !Number.isSafeInteger(entry.size) ||
       entry.size < 0 ||
@@ -85,6 +82,7 @@ async function fetchExtensionSource(api, context, tree, name) {
       continue;
     }
 
+    budget.remainingRequests -= 1;
     const content = await getRepositoryBlobText(
       api,
       context.baseRepository,
@@ -110,6 +108,7 @@ async function analyseExtensions(api, context, names) {
     context.headSha,
   );
   const extensions = [];
+  const budget = { remainingRequests: MAX_TOTAL_SOURCE_REQUESTS };
 
   for (const name of names) {
     const packagePath = `extensions/${name}/package.json`;
@@ -118,7 +117,12 @@ async function analyseExtensions(api, context, names) {
       context.baseRepository,
       context.headSha,
       packagePath,
+      { allow404: true },
     );
+    if (manifestText === null) {
+      console.log(`Skipping '${name}': removed at the PR head.`);
+      continue;
+    }
     const manifest = parseExtensionManifest(
       manifestText,
       name,
@@ -129,6 +133,7 @@ async function analyseExtensions(api, context, names) {
       context,
       tree,
       name,
+      budget,
     );
     extensions.push(
       analyseExtensionData({
@@ -183,9 +188,15 @@ async function main() {
   }
 
   const extensions = await analyseExtensions(api, context, names);
+  if (extensions.length === 0) {
+    console.log("No extensions remain at the PR head; no security comment is needed.");
+    return;
+  }
   const report = renderSecurityComment(extensions);
   await replaceSecurityComment(api, context, report);
-  console.log(`Posted security report for ${names.join(", ")}.`);
+  console.log(
+    `Posted security report for ${extensions.map((e) => e.name).join(", ")}.`,
+  );
 }
 
 main().catch((error) => {

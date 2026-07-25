@@ -96,7 +96,13 @@ async function main() {
     context.baseRepository,
     context.headSha,
     packagePath,
+    { allow404: true },
   );
+  if (headText === null) {
+    throw new Error(
+      `${packagePath} does not exist at the PR head — cannot derive a version. A removal PR should not be the only change to a single extension.`,
+    );
+  }
   const submission = parseExtensionManifest(
     headText,
     name,

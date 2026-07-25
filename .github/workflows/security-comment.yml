@@ -2,10 +2,12 @@ name: Security comment
 
 # Posting a comment on a fork PR requires a writable base-repository token, so
 # this uses pull_request_target. The privileged job checks out trusted tooling
-# only. It retrieves PR paths and blobs from GitHub's API at the exact head SHA,
-# applies strict size/path/type limits, and treats every byte as passive data.
+# only. It lists the PR's changed paths and reads every manifest and blob from
+# GitHub's API at the exact head SHA, applies strict size/path/type limits, and
+# treats every byte as passive data.
 on:
   pull_request_target:
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths:
       - "extensions/**"

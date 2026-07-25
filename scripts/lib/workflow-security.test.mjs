@@ -35,6 +35,19 @@ test("workflow actions use immutable commit SHAs", () => {
   }
 });
 
+test("pull_request_target triggers are pinned to the main branch", () => {
+  for (const workflow of [validateWorkflow, securityWorkflow]) {
+    const privilegedTrigger = workflow.split("pull_request_target:\n")[1];
+    assert.ok(privilegedTrigger);
+    assert.match(privilegedTrigger.split("\n\n")[0], /branches: \[main\]/);
+  }
+});
+
+test("these guardrails run on every pull request that edits a workflow", () => {
+  const triggers = validateWorkflow.split("jobs:")[0];
+  assert.match(triggers, /- "\.github\/workflows\/\*\*"/);
+});
+
 test("privileged jobs do not pass untrusted values through GITHUB_OUTPUT", () => {
   const privilegedValidateJob = validateWorkflow.split("\n  pr-meta:\n")[1];
   assert.ok(privilegedValidateJob);

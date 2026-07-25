@@ -131,9 +131,10 @@ export function parsePullRequestContext(event, repositoryFallback = "") {
   }
 
   const baseRepository = pr.base?.repo?.full_name ?? repositoryFallback;
-  const headRepository = pr.head?.repo?.full_name;
   repositoryParts(baseRepository);
-  repositoryParts(headRepository);
+
+  const headRepository = pr.head?.repo?.full_name ?? null;
+  if (headRepository !== null) repositoryParts(headRepository);
 
   const opener = assertString(pr.user?.login, "pull request opener", 39);
   if (!GITHUB_HANDLE_RE.test(opener)) {
@@ -180,8 +181,10 @@ function extensionNameFromPath(filePath) {
   if (typeof filePath !== "string" || !filePath.startsWith("extensions/")) {
     return null;
   }
-  const name = filePath.split("/", 3)[1];
-  if (!EXTENSION_NAME_RE.test(name ?? "")) {
+  const segments = filePath.split("/", 3);
+  if (segments.length < 3 || segments[2] === "") return null;
+  const name = segments[1];
+  if (!EXTENSION_NAME_RE.test(name)) {
     throw new Error(
       `invalid extension directory in changed path: ${JSON.stringify(filePath)}`,
     );
