@@ -1,8 +1,3 @@
-muxy.tabs.open({
-  kind: "extensionWebView",
-  extension: {
-    id: (typeof muxy !== "undefined" && muxy.extensionID) || "files",
-    tabType: "code-editor",
-    data: { searchMode: true },
-  },
-});
+import { open_find_in_files } from "./find-in-files/runner.js";
+
+void open_find_in_files();
