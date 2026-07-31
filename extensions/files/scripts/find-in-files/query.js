@@ -22,19 +22,16 @@ export function parse_result_id(id) {
 }
 
 export function parse_result_line(line) {
-  const first = line.indexOf(":");
-  if (first <= 0) return null;
-  const second = line.indexOf(":", first + 1);
-  if (second <= first + 1) return null;
+  const parsed = split_result_line(line);
+  if (!parsed) return null;
 
-  const filePath = line.slice(0, first);
-  const lineNumber = Number(line.slice(first + 1, second));
-  if (!Number.isFinite(lineNumber) || lineNumber < 1) return null;
+  const filePath = workspace_path(parsed.filePath);
+  if (!filePath) return null;
 
   return {
-    id: result_id(filePath, lineNumber),
-    title: title_for(line.slice(second + 1)),
-    subtitle: `${filePath}:${lineNumber}`,
+    id: result_id(filePath, parsed.lineNumber),
+    title: title_for(parsed.content),
+    subtitle: `${filePath}:${parsed.lineNumber}`,
   };
 }
 
@@ -75,6 +72,42 @@ export function is_search_too_short(query, options) {
 
 export function pattern_stdin(variants) {
   return `${variants.join("\n")}\n`;
+}
+
+// rg runs with --null, so it emits "path\0line:content" and the path may itself
+// contain colons. grep has no such option and emits "path:line:content"; there we
+// fall back to splitting on the first colon, since a path containing one is rarer
+// than a matched line that starts with digits and a colon.
+function split_result_line(line) {
+  const nul = line.indexOf("\0");
+  if (nul > 0) {
+    const rest = line.slice(nul + 1);
+    const colon = rest.indexOf(":");
+    if (colon <= 0) return null;
+    const lineNumber = line_number_of(rest.slice(0, colon));
+    if (!lineNumber) return null;
+    return { filePath: line.slice(0, nul), lineNumber, content: rest.slice(colon + 1) };
+  }
+
+  const first = line.indexOf(":");
+  if (first <= 0) return null;
+  const second = line.indexOf(":", first + 1);
+  if (second <= first + 1) return null;
+  const lineNumber = line_number_of(line.slice(first + 1, second));
+  if (!lineNumber) return null;
+  return { filePath: line.slice(0, first), lineNumber, content: line.slice(second + 1) };
+}
+
+function line_number_of(raw) {
+  const lineNumber = Number(raw);
+  if (!Number.isFinite(lineNumber) || lineNumber < 1) return null;
+  return lineNumber;
+}
+
+// rg prefixes its matches with "./" while grep does not. Strip it so the same file
+// yields one identity regardless of which backend produced the hit.
+function workspace_path(filePath) {
+  return filePath.replace(/^\.\//, "");
 }
 
 function title_for(content) {

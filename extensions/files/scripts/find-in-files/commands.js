@@ -23,6 +23,7 @@ function rg_argv(options) {
   return [
     "rg",
     "-n",
+    "--null",
     "--no-config",
     "--color",
     "never",
