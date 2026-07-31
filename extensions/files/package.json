@@ -124,6 +124,17 @@
         "entry": "panel/editor.html"
       }
     ],
+    "fileOpeners": [
+      {
+        "id": "editor",
+        "title": "Editor",
+        "tabType": "code-editor",
+        "patterns": [
+          "*"
+        ],
+        "singleton": true
+      }
+    ],
     "commands": [
       {
         "id": "toggle-files",
