@@ -3,7 +3,7 @@
   "version": "1.21.2",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/build-run-scripts.mjs",
+    "build": "vite build && node scripts/copy-build-assets.mjs",
     "gen-icons": "node scripts/gen-material-icons.mjs",
     "update-skill": "node scripts/update-skill.mjs"
   },
