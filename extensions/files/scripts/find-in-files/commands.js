@@ -1,22 +1,35 @@
-import { OUTPUT_LINE_LIMIT, SEARCH_TIMEOUT_MS } from "./constants.js";
+import {
+  OUTPUT_LINE_LIMIT,
+  SEARCH_EXIT_MARKER,
+  SEARCH_TIMEOUT_MS,
+} from "./constants.js";
 import { pattern_stdin } from "./query.js";
 
 export function rg_request(variants, options) {
-  return {
-    argv: rg_argv(options),
-    stdin: pattern_stdin(variants),
-    timeoutMs: SEARCH_TIMEOUT_MS,
-    maxLines: OUTPUT_LINE_LIMIT,
-  };
+  return search_request(rg_argv(options), variants);
 }
 
 export function grep_request(variants, options) {
+  return search_request(grep_argv(options), variants);
+}
+
+function search_request(argv, variants) {
   return {
-    argv: grep_argv(options),
+    argv: bounded_argv(argv),
     stdin: pattern_stdin(variants),
     timeoutMs: SEARCH_TIMEOUT_MS,
-    maxLines: OUTPUT_LINE_LIMIT,
   };
+}
+
+function bounded_argv(argv) {
+  // execAsync has no line-limit option. Keep the query out of the shell string,
+  // cap stdout with a fixed pipeline, and report the search command's status on
+  // stderr so runner.js can still distinguish no matches from real failures.
+  const script =
+    `{ "$@"; search_status=$?; ` +
+    `printf '\\n${SEARCH_EXIT_MARKER}%s\\n' "$search_status" >&2; } ` +
+    `| head -n ${OUTPUT_LINE_LIMIT}`;
+  return ["sh", "-c", script, "find-in-files", ...argv];
 }
 
 function rg_argv(options) {

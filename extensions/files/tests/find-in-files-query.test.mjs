@@ -40,9 +40,11 @@ test("Find in Files runScript returns query results from onQuery", async () => {
     execAsync: execAsyncFromSync((argv, options) => {
       calls.push({ argv, options });
       assert.ok(Array.isArray(argv), "muxy.exec receives argv array");
-      assert.equal(argv[0], "rg");
+      assert.equal(argv[0], "sh");
+      assert.ok(argv.includes("rg"));
+      assert.ok(argv[2].includes("head -n 120"));
       assert.equal(options.stdin, "needle\n");
-      assert.equal(options.maxLines, 120);
+      assert.equal("maxLines" in options, false);
       return { exitCode: 0, stdout: "src/main.js:12:const needle = true;\n" };
     }),
   };
@@ -97,7 +99,7 @@ test("Find in Files runScript passes search options and stdin to muxy.exec", asy
     assert.equal(searchRequest.argv.includes("-i"), false);
     assert.equal(searchRequest.argv.includes("-F"), false);
     assert.equal(searchRequest.options.stdin, "needle\n");
-    assert.equal(searchRequest.options.maxLines, 120);
+    assert.equal("maxLines" in searchRequest.options, false);
   } finally {
     delete globalThis.muxy;
   }
@@ -182,7 +184,8 @@ test("Find in Files runScript bounds common English searches", async () => {
     assert.ok(searchRequest.argv.includes("2"));
     assert.ok(searchRequest.argv.includes("!.omo/**"));
     assert.ok(searchRequest.argv.includes("!**/package-lock.json"));
-    assert.equal(searchRequest.options.maxLines, 120);
+    assert.ok(searchRequest.argv[2].includes("head -n 120"));
+    assert.equal("maxLines" in searchRequest.options, false);
     assert.equal(searchRequest.options.timeoutMs, 350);
   } finally {
     delete globalThis.muxy;

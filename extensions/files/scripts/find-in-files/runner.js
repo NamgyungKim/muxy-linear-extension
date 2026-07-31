@@ -1,4 +1,4 @@
-import { MAX_RESULTS } from "./constants.js";
+import { MAX_RESULTS, SEARCH_EXIT_MARKER } from "./constants.js";
 import { grep_request, rg_request } from "./commands.js";
 import {
   is_search_too_short,
@@ -178,13 +178,27 @@ async function perform_search(variants, options) {
 
   const result = response.ok ? response.result : null;
   const items = result_items(result);
-  return { items, cacheable: is_cacheable_result(result) };
+  if (items.length > 0) {
+    return { items, cacheable: is_cacheable_result(result) };
+  }
+  if (response.ok && is_empty_success_result(result)) {
+    return { items: [], cacheable: true };
+  }
+  if (is_cancelled_response(response)) {
+    return { items: [], cacheable: false };
+  }
+  if (is_timed_out_response(response)) {
+    return search_error("Search timed out", variants[0]);
+  }
+  if (options.regex && response.ok && search_exit_code(result) > 1) {
+    return search_error("Invalid pattern", variants[0]);
+  }
+  return search_error("Search failed", variants[0]);
 }
 
 async function run_request(request) {
   const handle = muxy.execAsync(request.argv, {
     stdin: request.stdin,
-    maxLines: request.maxLines,
     timeoutMs: request.timeoutMs,
   });
   if (
@@ -215,25 +229,89 @@ async function run_request(request) {
 }
 
 function should_fallback_to_grep(response) {
-  return response.ok && response.result && response.result.exitCode === COMMAND_NOT_FOUND_EXIT_CODE;
+  if (response.ok) {
+    return search_exit_code(response.result) === COMMAND_NOT_FOUND_EXIT_CODE;
+  }
+  return is_command_not_found_error(response.error);
 }
 
 function result_items(result) {
-  if (!result || result.exitCode > 1) return [];
+  if (!result) return [];
   const seen = new Set();
   const items = [];
-  for (const line of String(result.stdout || "").split("\n")) {
+  const stdout = String(result.stdout || "");
+  let start = 0;
+  while (start < stdout.length && items.length < MAX_RESULTS) {
+    const newline = stdout.indexOf("\n", start);
+    const line = newline === -1 ? stdout.slice(start) : stdout.slice(start, newline);
     const item = parse_result_line(line);
-    if (!item || seen.has(item.id)) continue;
-    seen.add(item.id);
-    items.push(item);
-    if (items.length >= MAX_RESULTS) break;
+    if (item && !seen.has(item.id)) {
+      seen.add(item.id);
+      items.push(item);
+    }
+    if (newline === -1) break;
+    start = newline + 1;
   }
   return items;
 }
 
 function is_cacheable_result(result) {
-  return Boolean(result && result.exitCode <= 1);
+  if (!result || result.timedOut) return false;
+  const exitCode = search_exit_code(result);
+  return (
+    exitCode === 0 ||
+    exitCode === 1 ||
+    (exitCode === 141 && Boolean(result.stdout))
+  );
+}
+
+function is_empty_success_result(result) {
+  if (!result || result.timedOut) return false;
+  const exitCode = search_exit_code(result);
+  return exitCode === 0 || exitCode === 1;
+}
+
+function search_exit_code(result) {
+  if (!result) return -1;
+  const stderr = String(result.stderr || "");
+  const marker = stderr.lastIndexOf(SEARCH_EXIT_MARKER);
+  if (marker >= 0) {
+    const value = parseInt(stderr.slice(marker + SEARCH_EXIT_MARKER.length), 10);
+    if (Number.isFinite(value)) return value;
+  }
+  return Number.isFinite(result.exitCode) ? result.exitCode : -1;
+}
+
+function is_command_not_found_error(error) {
+  if (!error || is_cancelled_error(error) || is_timeout_error(error)) return false;
+  const message = String(error.message || error).toLowerCase();
+  return message.includes("command not found:") || message.includes("enoent");
+}
+
+function is_cancelled_response(response) {
+  return !response.ok && is_cancelled_error(response.error);
+}
+
+function is_cancelled_error(error) {
+  return Boolean(error && (error.cancelled || error.code === "cancelled"));
+}
+
+function is_timed_out_response(response) {
+  if (response.ok) return Boolean(response.result && response.result.timedOut);
+  return is_timeout_error(response.error);
+}
+
+function is_timeout_error(error) {
+  if (!error || is_cancelled_error(error)) return false;
+  const message = String(error.message || error).toLowerCase();
+  return message.includes("timed out") || message.includes("timeout");
+}
+
+function search_error(title, subtitle) {
+  return {
+    items: [{ id: "__error__", title, subtitle: String(subtitle || "") }],
+    cacheable: false,
+  };
 }
 
 export function reset_find_in_files_state_for_tests() {
