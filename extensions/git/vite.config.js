@@ -21,6 +21,7 @@ export default defineConfig({
       input: {
         scm: resolve(__dirname, "panel/index.html"),
         "diff-viewer": resolve(__dirname, "panel/diff-viewer.html"),
+        "pr-checkout": resolve(__dirname, "modal/pr-checkout.html"),
       },
     },
   },
