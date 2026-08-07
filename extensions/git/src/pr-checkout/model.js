@@ -49,6 +49,24 @@ export function detailAction(event) {
     return null;
 }
 
+export function isPrOpen(pr) {
+    return String(pr?.state ?? "open").toLowerCase() === "open";
+}
+
+export class RequestGate {
+    token = 0;
+    start() {
+        this.token += 1;
+        return this.token;
+    }
+    invalidate() {
+        this.token += 1;
+    }
+    allows(token) {
+        return token === this.token;
+    }
+}
+
 export function isBackShortcut(event) {
     return event.key === "ArrowLeft"
         && !event.metaKey

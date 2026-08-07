@@ -62,6 +62,12 @@ export class PrCache {
     deleteDetails(number) {
         this.details.delete(number);
     }
+    deleteListItem(number) {
+        if (!this.list)
+            return;
+        this.list = this.list.filter((pr) => pr.number !== number);
+        return this.persistList();
+    }
     updateListItem(detail) {
         if (!this.list)
             return;

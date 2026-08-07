@@ -5,7 +5,7 @@ import { PrCache } from "@/pr-checkout/cache";
 import { CheckoutView } from "@/pr-checkout/checkout-view";
 import { DetailView } from "@/pr-checkout/detail-view";
 import { PrListView } from "@/pr-checkout/list-view";
-import { isBackShortcut, prWorktreePath } from "@/pr-checkout/model";
+import { isBackShortcut, isPrOpen, prWorktreePath, RequestGate } from "@/pr-checkout/model";
 
 const PR_LIMIT = 100;
 
@@ -28,6 +28,9 @@ export class PrCheckoutApp {
     selectedPr;
     scopeRoot = "";
     busy = false;
+    refreshing = false;
+    listRequests = new RequestGate();
+    detailRequests = new RequestGate();
     constructor(root) {
         this.root = root;
         this.listView = new PrListView(root, {
@@ -58,6 +61,7 @@ export class PrCheckoutApp {
         await this.loadList(false);
     }
     showList() {
+        this.detailRequests.invalidate();
         this.view = "list";
         this.checkoutView = null;
         this.detailView = null;
@@ -80,14 +84,19 @@ export class PrCheckoutApp {
                 refreshing: this.cache.list !== null,
             });
         }
+        const request = this.listRequests.start();
         try {
             const prs = await scm.prList({ filter: "open", limit: PR_LIMIT, fresh });
+            if (!this.listRequests.allows(request))
+                return false;
             void this.cache.setList(prs);
             if (this.view === "list")
                 this.listView.update({ prs });
             return true;
         }
         catch (err) {
+            if (!this.listRequests.allows(request))
+                return false;
             const error = err instanceof Error ? err.message : String(err);
             if (this.view === "list")
                 this.listView.update({ prs: cached, error });
@@ -95,6 +104,7 @@ export class PrCheckoutApp {
         }
     }
     openCheckout(pr) {
+        this.detailRequests.invalidate();
         this.selectedPr = pr;
         this.view = "checkout";
         this.detailView = null;
@@ -105,6 +115,7 @@ export class PrCheckoutApp {
         this.checkoutView.render();
     }
     openDetails(pr) {
+        this.detailRequests.invalidate();
         this.selectedPr = pr;
         this.view = "details";
         this.checkoutView = null;
@@ -130,9 +141,12 @@ export class PrCheckoutApp {
             this.detailView?.setReady(cached);
             return true;
         }
+        const request = this.detailRequests.start();
         this.detailView?.setLoading(!!cached);
         try {
             const detail = await scm.prDetails(number);
+            if (!this.detailRequests.allows(request))
+                return false;
             this.cache.setDetails(number, detail);
             this.updateCachedPr(detail);
             if (this.view === "details" && this.selectedPr?.number === number)
@@ -140,6 +154,8 @@ export class PrCheckoutApp {
             return true;
         }
         catch (err) {
+            if (!this.detailRequests.allows(request))
+                return false;
             const error = err instanceof Error ? err.message : String(err);
             if (this.view === "details" && this.selectedPr?.number === number)
                 this.detailView?.setError(error);
@@ -150,7 +166,8 @@ export class PrCheckoutApp {
         if (!this.cache.list)
             return;
         void this.cache.updateListItem(detail);
-        this.selectedPr = this.cache.list.find((pr) => pr.number === detail.number) ?? this.selectedPr;
+        if (this.selectedPr?.number === detail.number)
+            this.selectedPr = this.cache.list.find((pr) => pr.number === detail.number) ?? this.selectedPr;
     }
     goBack() {
         if (!this.busy)
@@ -159,7 +176,7 @@ export class PrCheckoutApp {
     onKeyDown(event) {
         if (event.metaKey && event.key.toLowerCase() === "r") {
             event.preventDefault();
-            if (!this.busy)
+            if (!this.busy && !this.refreshing)
                 void this.refreshCurrent();
             return;
         }
@@ -177,22 +194,30 @@ export class PrCheckoutApp {
             event.preventDefault();
     }
     async refreshCurrent() {
-        if (this.view === "list") {
-            await this.loadList(true);
+        if (this.refreshing)
             return;
+        this.refreshing = true;
+        try {
+            if (this.view === "list") {
+                await this.loadList(true);
+                return;
+            }
+            if (this.view === "details") {
+                await this.loadDetails(true);
+                return;
+            }
+            const number = this.selectedPr?.number;
+            this.checkoutView?.setBusy(true, `Refreshing PR #${number}…`);
+            const loaded = await this.loadList(true);
+            const pr = this.cache.list?.find((item) => item.number === number) ?? this.selectedPr;
+            if (loaded && pr)
+                this.openCheckout(pr);
+            else
+                this.checkoutView?.setBusy(false);
         }
-        if (this.view === "details") {
-            await this.loadDetails(true);
-            return;
+        finally {
+            this.refreshing = false;
         }
-        const number = this.selectedPr?.number;
-        this.checkoutView?.setBusy(true, `Refreshing PR #${number}…`);
-        const loaded = await this.loadList(true);
-        const pr = this.cache.list?.find((item) => item.number === number) ?? this.selectedPr;
-        if (loaded && pr)
-            this.openCheckout(pr);
-        else
-            this.checkoutView?.setBusy(false);
     }
     async checkout(mode) {
         if (this.busy || !this.selectedPr)
@@ -229,6 +254,8 @@ export class PrCheckoutApp {
             openUrl(this.detailView?.detail?.url || pr.url);
             return;
         }
+        if (!isPrOpen(this.detailView?.detail ?? pr))
+            return;
         const merge = action === "merge";
         const confirmed = await confirmAction({
             title: merge ? `Merge PR #${pr.number}?` : `Close PR #${pr.number}?`,
@@ -238,12 +265,15 @@ export class PrCheckoutApp {
         });
         if (!confirmed)
             return;
+        if (!isPrOpen(this.detailView?.detail ?? this.selectedPr ?? pr))
+            return;
         this.busy = true;
         this.detailView?.setBusy(true, merge ? `Merging PR #${pr.number}…` : `Closing PR #${pr.number}…`);
         try {
             await runBusy(() => merge ? mergePr(pr.number, "merge", false) : closePr(pr.number));
-            await notify(merge ? "Pull request merged" : "Pull request closed", `PR #${pr.number} · ${pr.title}`);
             this.cache.deleteDetails(pr.number);
+            await this.cache.deleteListItem(pr.number);
+            await notify(merge ? "Pull request merged" : "Pull request closed", `PR #${pr.number} · ${pr.title}`);
             this.showList();
             await this.loadList(true);
         }

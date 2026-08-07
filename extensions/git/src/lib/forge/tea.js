@@ -123,9 +123,9 @@ function detailComment(raw, kind) {
 }
 
 export async function prDetails(number) {
-    const [out, patch] = await Promise.all([
+    const [out, stats] = await Promise.all([
         run(["tea", "pr", String(number), "--comments", "--output", "json"]),
-        prDiff(number),
+        prDiff(number).then((patch) => diffStats(patch.diff)).catch(() => diffStats("")),
     ]);
     const raw = JSON.parse(out);
     const comments = [
@@ -145,7 +145,7 @@ export async function prDetails(number) {
         mergeable: mapMergeable(raw.mergeable),
         mergeStateStatus: "",
         reviewDecision: "",
-        ...diffStats(patch.diff),
+        ...stats,
         comments,
         createdAt: raw.created ?? "",
         updatedAt: raw.updated ?? "",

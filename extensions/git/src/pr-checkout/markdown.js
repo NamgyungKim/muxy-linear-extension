@@ -3,11 +3,11 @@ import { marked } from "marked";
 
 const MARKDOWN_TAGS = [
     "a", "blockquote", "br", "code", "del", "details", "em", "h1", "h2", "h3", "h4", "h5", "h6",
-    "hr", "img", "input", "kbd", "li", "ol", "p", "pre", "span", "strong", "sub", "summary", "sup",
+    "hr", "input", "kbd", "li", "ol", "p", "pre", "span", "strong", "sub", "summary", "sup",
     "table", "tbody", "td", "th", "thead", "tr", "ul",
 ];
 
-const MARKDOWN_ATTRS = ["alt", "checked", "class", "disabled", "href", "src", "title", "type"];
+const MARKDOWN_ATTRS = ["checked", "class", "disabled", "href", "title", "type"];
 
 export function markdownHtml(source, purifier = DOMPurify) {
     const input = String(source ?? "").replace(/^[\u200B-\u200F\uFEFF]/, "");
@@ -49,17 +49,6 @@ export function markdownBlock(source, { baseUrl = "", emptyText = "", onOpen } =
         anchor.setAttribute("href", href);
         anchor.setAttribute("rel", "noreferrer");
         anchor.setAttribute("title", anchor.getAttribute("title") || "Open in browser");
-    }
-    for (const image of block.querySelectorAll("img")) {
-        const src = resolveMarkdownUrl(image.getAttribute("src"), baseUrl);
-        if (!src) {
-            image.remove();
-            continue;
-        }
-        image.setAttribute("src", src);
-        image.setAttribute("loading", "lazy");
-        image.setAttribute("referrerpolicy", "no-referrer");
-        image.addEventListener("error", () => image.remove(), { once: true });
     }
     for (const input of block.querySelectorAll("input")) {
         input.disabled = true;

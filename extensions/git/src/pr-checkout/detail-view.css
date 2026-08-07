@@ -34,8 +34,13 @@
   font-weight: 600;
 }
 
-.pr-detail-state-draft {
+.pr-detail-state-draft,
+.pr-detail-state-closed {
   color: var(--muxy-foreground-muted);
+}
+
+.pr-detail-state-merged {
+  color: var(--muxy-accent);
 }
 
 .pr-detail-overview h2 {
@@ -220,16 +225,6 @@
   font-weight: 600;
 }
 
-.pr-markdown img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin: var(--s4) 0;
-  border: 1px solid var(--muxy-border);
-  border-radius: var(--radius);
-  background: var(--muxy-surface);
-}
-
 .pr-markdown hr {
   margin: var(--s6) 0;
   border: 0;
@@ -367,6 +362,11 @@
 
 .pr-detail-action-close .pr-detail-action-icon {
   color: var(--muxy-diff-remove);
+}
+
+.pr-detail-action:disabled {
+  pointer-events: none;
+  opacity: 0.5;
 }
 
 .pr-detail-action-copy {

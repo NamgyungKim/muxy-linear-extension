@@ -477,7 +477,7 @@ button:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .pr-spinner {
-    animation-duration: 1ms;
+    animation: none;
   }
 
   .pr-refresh-bar span {

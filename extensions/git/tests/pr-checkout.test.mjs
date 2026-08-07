@@ -4,7 +4,7 @@ import test from "node:test";
 import { diffStats } from "../src/lib/diff-stats.js";
 import { PrCache, prListCacheKey } from "../src/pr-checkout/cache.js";
 import { markdownHtml, resolveMarkdownUrl } from "../src/pr-checkout/markdown.js";
-import { checksLabel, detailAction, filterPullRequests, isBackShortcut, isTextInputTarget, prWorktreePath, selectionMode } from "../src/pr-checkout/model.js";
+import { checksLabel, detailAction, filterPullRequests, isBackShortcut, isPrOpen, isTextInputTarget, prWorktreePath, RequestGate, selectionMode } from "../src/pr-checkout/model.js";
 
 const prs = [
     {
@@ -56,11 +56,30 @@ test("maps Left Arrow to back outside text inputs", () => {
     assert.equal(isTextInputTarget({ tagName: "textarea" }), true);
 });
 
+test("allows mutating actions only for open pull requests", () => {
+    assert.equal(isPrOpen({ state: "open" }), true);
+    assert.equal(isPrOpen({ state: "OPEN" }), true);
+    assert.equal(isPrOpen({ state: "closed" }), false);
+    assert.equal(isPrOpen({ state: "merged" }), false);
+});
+
+test("accepts only the latest asynchronous request", () => {
+    const requests = new RequestGate();
+    const first = requests.start();
+    const second = requests.start();
+    assert.equal(requests.allows(first), false);
+    assert.equal(requests.allows(second), true);
+    requests.invalidate();
+    assert.equal(requests.allows(second), false);
+});
+
 test("renders GitHub-flavored Markdown through the sanitizer", () => {
     let sanitized = false;
+    let allowedTags = [];
     const purifier = {
-        sanitize(html) {
+        sanitize(html, options) {
             sanitized = true;
+            allowedTags = options.ALLOWED_TAGS;
             return html;
         },
     };
@@ -69,6 +88,7 @@ test("renders GitHub-flavored Markdown through the sanitizer", () => {
     assert.match(html, /<strong>Ready<\/strong>/);
     assert.match(html, /<input[^>]*checked[^>]*type="checkbox"/);
     assert.match(html, /<code>built<\/code>/);
+    assert.equal(allowedTags.includes("img"), false);
 });
 
 test("resolves only web Markdown links", () => {
@@ -114,6 +134,8 @@ test("caches pull request lists and details while preserving list check state", 
     assert.equal(cache.getDetails(42).summary, "Cached details");
     assert.equal(cache.list[0].title, "Updated title");
     assert.equal(cache.list[0].checks.status, "success");
+    cache.deleteListItem(42);
+    assert.deepEqual(cache.list, []);
     cache.deleteDetails(42);
     assert.equal(cache.getDetails(42), undefined);
 });
