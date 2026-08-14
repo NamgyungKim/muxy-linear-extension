@@ -9,7 +9,7 @@
     "update-skill": "node scripts/update-skill.mjs"
   },
   "type": "module",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "dependencies": {
     "@pierre/diffs": "^1.2.12",
     "dompurify": "^3.4.13",
@@ -46,14 +46,28 @@
         "id": "scm",
         "title": "Source Control",
         "entry": "panel/index.html",
+        "icon": {
+          "symbol": "arrow.triangle.branch"
+        },
         "position": "right",
         "mode": "pinned",
-        "hiddenControls": [
-          "icon",
-          "title",
-          "close",
-          "pin",
-          "position"
+        "headerButtons": [
+          {
+            "id": "refresh",
+            "icon": {
+              "symbol": "arrow.clockwise"
+            },
+            "tooltip": "Refresh",
+            "command": "refresh-scm"
+          },
+          {
+            "id": "open-repository",
+            "icon": {
+              "symbol": "arrow.up.right.square"
+            },
+            "tooltip": "Open Repository in Browser",
+            "command": "open-repository"
+          }
         ]
       }
     ],
@@ -77,6 +91,10 @@
       {
         "id": "refresh-scm",
         "title": "Refresh"
+      },
+      {
+        "id": "open-repository",
+        "title": "Open Repository in Browser"
       },
       {
         "id": "open-diff",
