@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>Linear</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <select id="state-filter" class="state-filter" title="Status filter">
+          <option value="">All</option>
+        </select>
+        <span class="spacer"></span>
+        <button id="new" class="icon-btn" title="New issue">＋</button>
+        <button id="refresh" class="icon-btn" title="Refresh">↻</button>
+        <button id="settings" class="icon-btn" title="Settings">⚙</button>
+      </header>
+      <div id="searchbar" class="searchbar">
+        <input id="search" type="text" placeholder="🔍 Search number/title (Enter: open exact)" />
+      </div>
+      <div id="branchbar" class="branchbar" hidden></div>
+      <div id="subbar" class="subbar" hidden>
+        <span id="linked" class="linked"></span>
+        <span class="spacer"></span>
+        <div class="seg" id="who" role="tablist">
+          <button class="seg-btn is-active" data-who="mine">My issues</button>
+          <button class="seg-btn" data-who="all">Whole project</button>
+        </div>
+      </div>
+      <div id="worklock" class="worklock" hidden></div>
+      <main id="content" class="content"></main>
+    </div>
+    <script type="module" src="../src/panel.js"></script>
+  </body>
+</html>
