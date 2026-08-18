@@ -17,6 +17,61 @@ function parentDir(path) {
   return path.replace(/\/+$/, "").replace(/\/[^/]+$/, "") || "/";
 }
 
+// 활성 worktree 루트별로 터미널 탭 하나를 재사용한다.
+// (root → tabID) 매핑을 storage 에 보관하고, 그 탭의 터미널 pane 이 아직 살아 있으면
+// 새 탭을 열지 않고 그 pane 으로 명령을 보낸다. 없으면 그때만 새 터미널을 연다.
+// 재사용 스코프는 "명령이 실제로 실행되는 시점의 활성 worktree 루트"라, worktree 를
+// 새로 만들든(branch/current 라 안 만들든) 지금 명령이 돌 디렉터리에 항상 대응된다.
+const TERMINAL_MAP_KEY = "terminal_tab_by_root";
+
+async function openOrReuseTerminal(command) {
+  const muxy = window.muxy;
+
+  // 명령이 실행될 활성 worktree 루트(캐시 우회를 위해 fresh).
+  let root = "";
+  try {
+    const info = await muxy.git.repoInfo({ fresh: true });
+    root = info?.root ? String(info.root) : "";
+  } catch {
+    /* 저장소 정보 조회 실패 시 스코프 없이 진행(항상 새 탭) */
+  }
+
+  // 이 루트에 매핑된 기존 터미널 탭이 살아 있으면 재사용.
+  let map = {};
+  try {
+    map = (await muxy.storage.get(TERMINAL_MAP_KEY)) || {};
+  } catch {
+    map = {};
+  }
+  const wantTab = root ? map[root] : null;
+  if (wantTab) {
+    try {
+      const panes = await muxy.panes.list();
+      const pane = panes.find((p) => p && p.kind === "terminal" && p.tabID === wantTab);
+      if (pane) {
+        // 기존 터미널로 포커스 후 명령 실행(개행으로 즉시 실행).
+        await muxy.tabs.switchTo(pane.tabID);
+        await muxy.panes.send(pane.paneID, command + "\n");
+        return command;
+      }
+    } catch {
+      /* pane 조회/전송 실패 시 아래에서 새 탭을 연다 */
+    }
+  }
+
+  // 재사용할 터미널이 없으면 새로 연다.
+  const tabID = await muxy.tabs.open({ kind: "terminal", command });
+  if (root && tabID) {
+    map[root] = tabID;
+    try {
+      await muxy.storage.set(TERMINAL_MAP_KEY, map);
+    } catch {
+      /* 매핑 저장 실패는 무시(다음에 새 탭이 열릴 뿐) */
+    }
+  }
+  return command;
+}
+
 // 저장소 루트의 마지막 세그먼트(폴더명).
 function baseName(path) {
   return path.replace(/\/+$/, "").split("/").pop();
@@ -91,7 +146,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
       }
       await muxy.git.worktree.switchTo({ identifier: branch });
     }
-    await muxy.tabs.open({ kind: "terminal", command });
+    await openOrReuseTerminal(command);
   } else {
     if (branchExists) {
       // 이미 있으면 그 브랜치로 전환.
@@ -109,7 +164,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
         }
       }
     }
-    await muxy.tabs.open({ kind: "terminal", command });
+    await openOrReuseTerminal(command);
   }
 
   return command;
@@ -120,7 +175,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
 // opts: { config, prompt }
 export async function finishWork({ config, prompt }) {
   const command = `${config.agent_command} ${shq(prompt)}`;
-  await window.muxy.tabs.open({ kind: "terminal", command });
+  await openOrReuseTerminal(command);
   return command;
 }
 

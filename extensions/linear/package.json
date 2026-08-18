@@ -18,6 +18,8 @@
     "permissions": [
       "panels:write",
       "tabs:write",
+      "panes:read",
+      "panes:write",
       "git:read",
       "git:write",
       "projects:read",
