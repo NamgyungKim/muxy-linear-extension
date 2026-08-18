@@ -7,6 +7,43 @@ function shq(s) {
   return "'" + String(s).replaceAll("'", "'\\''") + "'";
 }
 
+// 작업 시작 프롬프트를 담는 고정 경로.
+// 터미널 자동 실행(tabs.runCommand) consent 는 명령 문자열 전체(shellExact)로만 기억되므로,
+// 이슈키가 매번 바뀌는 프롬프트를 명령줄에 박으면 이슈마다 권한 창이 다시 뜬다.
+// → 프롬프트는 이 파일에 쓰고, 명령은 `claude "$(cat 이파일)"` 처럼 불변으로 만들어
+//   "Allow & remember" 한 번이면 이후 모든 이슈에서 다시 묻지 않게 한다.
+const PROMPT_DIR = ".muxy-linear";
+const START_PROMPT_PATH = `${PROMPT_DIR}/start-prompt`;
+
+// muxy.files.write 는 부모 폴더를 자동 생성하지 않으므로 .muxy-linear 를 먼저 만든다.
+// 이미 있으면 mkdir 이 실패할 수 있어 무시하고, .gitignore 에도 등록한다.
+async function ensurePromptDir() {
+  try { await window.muxy.files.mkdir(PROMPT_DIR); } catch { /* 이미 있으면 무시 */ }
+  await ensureGitignore();
+}
+
+// 프로젝트 .gitignore 에 .muxy-linear/ 를 추가한다(작업 산출물이 아니라 커밋 대상이 아니다).
+async function ensureGitignore() {
+  const entry = `${PROMPT_DIR}/`;
+  let content = "";
+  try {
+    const f = await window.muxy.files.read(".gitignore");
+    content = f.content || "";
+  } catch { /* .gitignore 가 없으면 새로 만든다 */ }
+  const has = content.split("\n").map((l) => l.trim()).some((l) => l === entry || l === PROMPT_DIR);
+  if (has) return;
+  const prefix = content && !content.endsWith("\n") ? `${content}\n` : content;
+  try {
+    await window.muxy.files.write(".gitignore", `${prefix}${entry}\n`);
+  } catch { /* 쓰기 거부 등은 무시(폴더 생성은 이미 됨) */ }
+}
+
+// 작업 시작 프롬프트를 고정 경로에 기록한다(명령이 이 파일을 cat 으로 읽는다).
+async function writeStartPrompt(prompt) {
+  await ensurePromptDir();
+  await window.muxy.files.write(START_PROMPT_PATH, String(prompt ?? ""));
+}
+
 // 브랜치명을 디렉토리 슬러그로 변환.
 function slug(branch) {
   return String(branch).replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-");
@@ -93,7 +130,13 @@ export async function listBaseBranchCandidates() {
 // 반환: 실행한 터미널 command 문자열(로그/토스트용).
 export async function startWork({ issue, config, branch, baseBranch, useWorktree, prompt }) {
   const muxy = window.muxy;
-  const command = `${config.agent_command} ${shq(prompt)}`;
+  // 명령은 프롬프트 내용과 무관하게 항상 동일(shellExact 재사용). 실제 프롬프트는 파일로 넘긴다.
+  const command = `${config.agent_command} "$(cat ${START_PROMPT_PATH})"`;
+  // 브랜치/worktree 전환 후 실제 실행 디렉터리에 프롬프트 파일을 쓰고 터미널을 연다.
+  const launch = async () => {
+    await writeStartPrompt(prompt);
+    return openOrReuseTerminal(command);
+  };
 
   // 한글 브랜치명은 NFC/NFD 정규화가 달라 비교가 어긋날 수 있으므로 NFC 로 통일해 비교한다.
   const nfc = (s) => String(s ?? "").normalize("NFC");
@@ -146,7 +189,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
       }
       await muxy.git.worktree.switchTo({ identifier: branch });
     }
-    await openOrReuseTerminal(command);
+    await launch();
   } else {
     if (branchExists) {
       // 이미 있으면 그 브랜치로 전환.
@@ -164,7 +207,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
         }
       }
     }
-    await openOrReuseTerminal(command);
+    await launch();
   }
 
   return command;
