@@ -44,6 +44,12 @@ export const CONFIG_DEFAULTS = {
   list_show_actions: true, // 행에서 상태별 액션 버튼 표시
   show_branch_bar: true, // 검색창 아래 현재 브랜치 표시줄
 
+  // 목록 그룹/정렬(리니어의 Display 메뉴처럼 패널에서 바꾼다).
+  // list_group_by: status | assignee | priority | project | milestone | none
+  list_group_by: "status",
+  // list_sort_by: updated | created | priority | title
+  list_sort_by: "updated",
+
   // 상태별 액션(워크플로우). 각 액션은:
   //  - label: 버튼 이름
   //  - appliesTo: 이 액션을 보여줄 상태 이름들(빈 배열 = 모든 상태)

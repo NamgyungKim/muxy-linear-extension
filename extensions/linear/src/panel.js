@@ -5,7 +5,7 @@
 import "./theme.css";
 import "./panel.css";
 import { installFatalHandler } from "./fatal.js";
-import { loadConfig, effectiveToken, applyProjectSettings } from "./config.js";
+import { loadConfig, saveConfig, effectiveToken, applyProjectSettings } from "./config.js";
 import { fetchMyIssues, fetchProjectIssues, fetchIssueById } from "./linear.js";
 import { readProjectConfig } from "./project.js";
 import { applicableActions, runAction, mergeActions } from "./actions.js";
@@ -57,9 +57,49 @@ function applyStaticI18n() {
   // 아이콘 버튼 · 필터 tooltip
   const setTitle = (id, key) => { const n = document.getElementById(id); if (n) n.title = t(key); };
   setTitle("state-filter", "panel.stateFilterTitle");
+  setTitle("display", "panel.displayTitle");
   setTitle("new", "panel.newIssueTitle");
   setTitle("refresh", "panel.refreshTitle");
   setTitle("settings", "panel.settingsTitle");
+  const gl = document.getElementById("group-by-label");
+  if (gl) gl.textContent = t("panel.grouping");
+  const sl = document.getElementById("sort-by-label");
+  if (sl) sl.textContent = t("panel.ordering");
+}
+
+// 그룹/정렬 옵션 정의(값 → i18n 라벨 키). select 채우기와 시그니처에 공용으로 쓴다.
+const GROUP_OPTS = [
+  { v: "status", k: "panel.groupStatus" },
+  { v: "assignee", k: "panel.groupAssignee" },
+  { v: "priority", k: "panel.groupPriority" },
+  { v: "project", k: "panel.groupProject" },
+  { v: "milestone", k: "panel.groupMilestone" },
+  { v: "none", k: "panel.groupNone" },
+];
+const SORT_OPTS = [
+  { v: "updated", k: "panel.sortUpdated" },
+  { v: "created", k: "panel.sortCreated" },
+  { v: "priority", k: "panel.sortPriority" },
+  { v: "status", k: "panel.sortStatus" },
+  { v: "title", k: "panel.sortTitle" },
+];
+
+// 두 select 를 현재 언어 라벨로 채우고 현재 값을 반영한다.
+function populateDisplayMenu() {
+  const fill = (id, opts, cur) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = "";
+    for (const o of opts) {
+      const opt = document.createElement("option");
+      opt.value = o.v;
+      opt.textContent = t(o.k);
+      sel.append(opt);
+    }
+    sel.value = cur;
+  };
+  fill("group-by", GROUP_OPTS, displayCfg.list_group_by || "status");
+  fill("sort-by", SORT_OPTS, displayCfg.list_sort_by || "updated");
 }
 
 // 상태 그룹 정렬 순서(타입 기준).
@@ -211,14 +251,17 @@ function toggleCollapse(wrap, parentId, caret) {
 
 function section(titleText, issues, opts = {}) {
   const wrap = el("section", { className: "group" });
-  const header = el("div", { className: "group-title" });
-  if (opts.color) {
-    const dot = el("span", { className: "dot" });
-    dot.style.color = opts.color;
-    header.append(dot);
+  // titleText 가 null 이면(그룹 없음) 헤더를 그리지 않는다.
+  if (titleText != null) {
+    const header = el("div", { className: "group-title" });
+    if (opts.color) {
+      const dot = el("span", { className: "dot" });
+      dot.style.color = opts.color;
+      header.append(dot);
+    }
+    header.append(document.createTextNode(`${titleText} · ${issues.length}`));
+    wrap.append(header);
   }
-  header.append(document.createTextNode(`${titleText} · ${issues.length}`));
-  wrap.append(header);
   for (const entry of orderWithChildren(issues)) {
     const row = issueRow(entry.issue, { indent: entry.indent, showProject: opts.showProject });
 
@@ -314,7 +357,87 @@ function populateStateFilter() {
   sel.value = stateFilter;
 }
 
-// allIssues 를 stateFilter 로 걸러 상태별 그룹으로 그린다(네트워크 재요청 없음).
+// 우선순위 그룹 표시 순서: 긴급 → 높음 → 보통 → 낮음 → 없음(0).
+const PRIORITY_GROUP_ORDER = [1, 2, 3, 4, 0];
+
+// 정렬 기준(list_sort_by)별 비교 함수. 기본은 최근 수정순(현재 동작 유지).
+function sortComparator(sortBy) {
+  const byUpdated = (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
+  if (sortBy === "created") return (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0) || byUpdated(a, b);
+  if (sortBy === "title") return (a, b) => (a.title || "").localeCompare(b.title || "") || byUpdated(a, b);
+  if (sortBy === "priority") {
+    // 긴급(1)…낮음(4) → 없음(0) 마지막. 동순위는 최근 수정순.
+    const rank = (p) => ({ 1: 0, 2: 1, 3: 2, 4: 3, 0: 4 }[p] ?? 5);
+    return (a, b) => rank(a.priority) - rank(b.priority) || byUpdated(a, b);
+  }
+  if (sortBy === "status") {
+    // 상태 타입 순서(진행 → 대기 → 완료 …) → 상태 이름 → 최근 수정순.
+    const rank = (s) => TYPE_ORDER[s?.type] ?? 9;
+    return (a, b) =>
+      rank(a.state) - rank(b.state) || (a.state?.name || "").localeCompare(b.state?.name || "") || byUpdated(a, b);
+  }
+  return byUpdated;
+}
+
+// 이름 기준 그룹핑: 빈 값은 emptyLabel 버킷으로 모아 맨 뒤로 정렬.
+function groupByName(issues, keyFn, emptyLabel) {
+  const groups = new Map();
+  for (const it of issues) {
+    const name = keyFn(it) || emptyLabel;
+    if (!groups.has(name)) groups.set(name, { title: name, issues: [] });
+    groups.get(name).issues.push(it);
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.title === emptyLabel) return 1;
+    if (b.title === emptyLabel) return -1;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+// 이슈들을 list_group_by 기준으로 그룹 배열 [{ title, color?, issues }] 로 만든다.
+// title 이 null 이면 헤더 없는 단일 그룹(그룹 없음).
+function buildGroups(issues, groupBy) {
+  if (groupBy === "none") return [{ title: null, issues }];
+
+  if (groupBy === "priority") {
+    const map = new Map();
+    for (const it of issues) {
+      const p = [1, 2, 3, 4].includes(it.priority) ? it.priority : 0;
+      if (!map.has(p)) map.set(p, []);
+      map.get(p).push(it);
+    }
+    return PRIORITY_GROUP_ORDER.filter((p) => map.has(p)).map((p) => ({
+      title: priorityLabel(p) || t("panel.noPriority"),
+      issues: map.get(p),
+    }));
+  }
+
+  if (groupBy === "assignee") {
+    return groupByName(issues, (it) => it.assignee?.displayName || it.assignee?.name || "", t("panel.noAssignee"));
+  }
+  if (groupBy === "project") {
+    return groupByName(issues, (it) => it.project?.name || "", t("panel.noProject"));
+  }
+  if (groupBy === "milestone") {
+    return groupByName(issues, (it) => it.projectMilestone?.name || "", t("panel.noMilestone"));
+  }
+
+  // status(기본): 실제 상태 이름 그대로 그룹핑(타입순 → 이름순).
+  const groups = new Map();
+  for (const it of issues) {
+    const name = it.state?.name ?? t("panel.otherState");
+    if (!groups.has(name)) {
+      groups.set(name, { title: name, type: it.state?.type ?? "unstarted", color: it.state?.color, issues: [] });
+    }
+    groups.get(name).issues.push(it);
+  }
+  return [...groups.values()].sort((a, b) => {
+    const d = (TYPE_ORDER[a.type] ?? 9) - (TYPE_ORDER[b.type] ?? 9);
+    return d !== 0 ? d : a.title.localeCompare(b.title);
+  });
+}
+
+// allIssues 를 stateFilter 로 걸러 선택한 그룹/정렬 기준으로 그린다(네트워크 재요청 없음).
 function renderList() {
   // 폴링 갱신 시 스크롤이 튀지 않도록 위치를 보존한다.
   const prevScroll = content.scrollTop;
@@ -334,26 +457,17 @@ function renderList() {
     return;
   }
 
-  // 현재 브랜치 이슈를 최상단으로 분리.
+  // 현재 브랜치 이슈를 최상단으로 분리(그룹/정렬 방식과 무관하게 강조).
   const current = filtered.find((i) => i.identifier === currentIssueId);
   const rest = filtered.filter((i) => i.identifier !== currentIssueId);
   if (current) content.append(section(t("panel.currentBranch"), [current], { showProject }));
 
-  // 실제 상태 이름 그대로 그룹핑(타입순 → 이름순).
-  const groups = new Map();
-  for (const it of rest) {
-    const name = it.state?.name ?? t("panel.otherState");
-    if (!groups.has(name)) {
-      groups.set(name, { name, type: it.state?.type ?? "unstarted", color: it.state?.color, issues: [] });
-    }
-    groups.get(name).issues.push(it);
-  }
-  const sortedGroups = [...groups.values()].sort((a, b) => {
-    const t = (TYPE_ORDER[a.type] ?? 9) - (TYPE_ORDER[b.type] ?? 9);
-    return t !== 0 ? t : a.name.localeCompare(b.name);
-  });
-  for (const g of sortedGroups) {
-    content.append(section(g.name, g.issues, { showProject, color: g.color }));
+  // 선택한 기준으로 그룹핑 + 그룹 내 정렬(자식 중첩은 section 이 처리).
+  const cmp = sortComparator(displayCfg.list_sort_by || "updated");
+  const groups = buildGroups(rest, displayCfg.list_group_by || "status");
+  for (const g of groups) {
+    const ordered = g.issues.slice().sort(cmp);
+    content.append(section(g.title, ordered, { showProject, color: g.color }));
   }
   content.scrollTop = prevScroll; // 재그리기 후 스크롤 위치 복원
 }
@@ -380,6 +494,7 @@ function issuesSignature(issues) {
     view: [
       getLang(), d.list_show_parent, d.list_show_state, d.list_show_priority,
       d.list_show_project, d.list_show_milestone, d.list_show_assignee, d.list_show_actions,
+      d.list_group_by, d.list_sort_by,
       !!d.api_token, !!d.agent_command, JSON.stringify(d.actions || null),
     ],
     items: issues.map((i) => [
@@ -448,6 +563,7 @@ async function render() {
     const token = effectiveToken(config, projectCfg); // 프로젝트 전용 키 우선
     // 실효 설정: 프로젝트 핵심 실행값 오버라이드 + 액션 병합 + 실효 토큰(모달에도 이 토큰을 넘긴다).
     displayCfg = { ...applyProjectSettings(config, projectCfg), actions: mergeActions(config.actions, projectCfg?.actions) };
+    populateDisplayMenu(); // 그룹/정렬 팝오버를 현재 값으로 채운다
     await refreshCurrentBranch();
 
     // 프로젝트가 Linear에 연결(.linear.json)되지 않았으면 리스트를 숨기고 연결 안내.
@@ -652,6 +768,29 @@ bindSeg("who", (d) => { who = d.who; });
 document.getElementById("refresh").addEventListener("click", refreshSmart);
 document.getElementById("new").addEventListener("click", openCreate);
 document.getElementById("settings").addEventListener("click", openSettings);
+
+// 그룹/정렬(Display) 팝오버: 버튼으로 토글, 바깥 클릭 시 닫기.
+const displayBtn = document.getElementById("display");
+const displayMenu = document.getElementById("display-menu");
+displayBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  displayMenu.hidden = !displayMenu.hidden;
+});
+document.addEventListener("click", (e) => {
+  if (displayMenu.hidden) return;
+  if (e.target === displayBtn || displayMenu.contains(e.target)) return;
+  displayMenu.hidden = true;
+});
+
+// 그룹/정렬 선택: 전역 설정으로 저장하고 즉시 다시 그린다(재요청 없음).
+async function setDisplayOption(key, value) {
+  displayCfg[key] = value;
+  await saveConfig({ [key]: value });
+  renderList();
+  lastSignature = issuesSignature(allIssues); // 폴링이 같은 이유로 다시 그리지 않도록 갱신
+}
+document.getElementById("group-by").addEventListener("change", (e) => setDisplayOption("list_group_by", e.target.value));
+document.getElementById("sort-by").addEventListener("change", (e) => setDisplayOption("list_sort_by", e.target.value));
 
 // 프로젝트/브랜치 전환 시 현재 브랜치 강조 + 연결 정보 갱신.
 // 구독 실패(권한 등)가 최초 렌더링을 막지 않도록 방어한다.

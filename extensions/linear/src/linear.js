@@ -59,6 +59,7 @@ const ISSUE_FIELDS = `
   branchName
   priority
   updatedAt
+  createdAt
   state { id name type color }
   team { id key name }
   project { id name }
