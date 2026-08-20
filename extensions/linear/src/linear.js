@@ -34,6 +34,14 @@ export async function gql(token, query, variables = {}) {
     throw codedError("인증 실패: API 키가 올바르지 않습니다.", "auth");
   }
 
+  // 요청 한도 초과(rate limit). Retry-After(초) 가 있으면 함께 전달한다.
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers?.["retry-after"] ?? res.headers?.["Retry-After"]);
+    const e = codedError("요청 한도를 초과했습니다. 잠시 후 다시 시도하세요.", "rate");
+    if (Number.isFinite(retryAfter) && retryAfter > 0) e.retryAfter = retryAfter;
+    throw e;
+  }
+
   let json;
   try {
     json = JSON.parse(res.body);
@@ -44,6 +52,10 @@ export async function gql(token, query, variables = {}) {
     const msg = json.errors.map((e) => e.message).join("; ");
     if (/authenticat|unauthor|api key|invalid token|forbidden/i.test(msg)) {
       throw codedError("인증 실패: API 키가 올바르지 않습니다.", "auth");
+    }
+    // 복잡도/요청 한도는 200 응답의 errors 로도 올 수 있다.
+    if (/rate limit|ratelimit|too many request/i.test(msg)) {
+      throw codedError("요청 한도를 초과했습니다. 잠시 후 다시 시도하세요.", "rate");
     }
     throw codedError(msg, "api");
   }

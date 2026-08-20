@@ -651,6 +651,13 @@ function errorBox(err) {
     title = t("panel.errNetworkTitle");
     hint = t("panel.errNetworkHint");
     btn = { label: t("common.retry"), fn: render };
+  } else if (code === "rate") {
+    title = t("panel.errRateTitle");
+    const secs = Number(err?.retryAfter);
+    hint = Number.isFinite(secs) && secs > 0
+      ? t("panel.errRateHintRetry", { secs })
+      : t("panel.errRateHint");
+    btn = { label: t("common.retry"), fn: render };
   } else if (code === "auth") {
     title = t("panel.errAuthTitle");
     hint = t("panel.errAuthHint");
