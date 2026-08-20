@@ -149,6 +149,32 @@ function stateBadge(state) {
   return badge;
 }
 
+// 이슈 번호를 클립보드로 복사한다. 최신 clipboard API 를 우선 쓰고, 사용할 수
+// 없으면 임시 textarea + execCommand 로 폴백한다.
+async function copyIssueId(identifier) {
+  let ok = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(identifier);
+      ok = true;
+    }
+  } catch { /* 폴백으로 진행 */ }
+  if (!ok) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = identifier;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.append(ta);
+      ta.select();
+      ok = document.execCommand("copy");
+      ta.remove();
+    } catch { ok = false; }
+  }
+  if (ok) muxy.toast?.({ title: t("panel.copiedToast"), body: identifier });
+  else muxy.toast?.({ title: t("panel.copyFailToast"), body: identifier });
+}
+
 function issueRow(issue, { indent = false, showProject = false } = {}) {
   const row = el("button", { className: "issue" });
   if (issue.identifier === currentIssueId) row.classList.add("is-current");
@@ -160,7 +186,19 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
   }
 
   const top = el("div", { className: "issue-top" });
-  top.append(el("span", { className: "issue-id" }, issue.identifier));
+  // 이슈 번호는 클릭 시 행이 열리는 대신 번호를 클립보드로 복사한다.
+  const idEl = el("span", {
+    className: "issue-id",
+    title: t("panel.copyIdTitle"),
+    role: "button",
+    tabIndex: 0,
+  }, issue.identifier);
+  const copyId = (e) => { e.stopPropagation(); copyIssueId(issue.identifier); };
+  idEl.addEventListener("click", copyId);
+  idEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copyId(e); }
+  });
+  top.append(idEl);
   if (displayCfg.list_show_state) top.append(stateBadge(issue.state));
   if (displayCfg.list_show_priority && priorityLabel(issue.priority)) {
     top.append(el("span", { className: "issue-prio" }, priorityLabel(issue.priority)));
