@@ -517,7 +517,7 @@ function issuesSignature(issues) {
 // 보이는 상태에서도 Page Visibility API 상 hidden 으로 잡혀 폴링이 통째로 막힌다(자동
 // 새로고침이 안 되는 원인이었다). 지속 폴링이 요구사항이므로 항상 돌린다.
 async function pollTick() {
-  if (!active || busy || !listReady || !currentToken) return;
+  if (busy || !listReady || !currentToken) return;
   busy = true;
   try {
     const config = await loadConfig();
@@ -543,10 +543,24 @@ function refreshSmart() {
   else render();
 }
 
-// 1초 간격 폴링 시작(중복 방지). pollTick 이 busy/listReady/currentToken 을 스스로 가드한다.
+// 새로고침 버튼 전용: 수동 갱신은 스피너를 돌려 눌린 것을 시각적으로 알린다.
+// (자동 폴링/이벤트 갱신은 조용히 유지 → 여기서만 setLoading 을 쓴다.)
+async function manualRefresh() {
+  if (!listReady) { render(); return; } // render() 가 자체 스피너를 표시
+  setLoading(true);
+  try {
+    await pollTick();
+  } finally {
+    setLoading(false);
+  }
+}
+
+// 폴링 시작(중복 방지). pollTick 이 busy/listReady/currentToken 을 스스로 가드한다.
+// active 게이트는 자동 폴링에만 적용한다 → 비활성(가려진) 패널은 요청을 멈추되,
+// 새로고침 버튼/이벤트 기반 refreshSmart 는 게이트와 무관하게 항상 동작한다.
 function startPolling() {
   if (pollTimer) return;
-  pollTimer = setInterval(pollTick, POLL_MS);
+  pollTimer = setInterval(() => { if (active) pollTick(); }, POLL_MS);
 }
 
 async function render() {
@@ -777,8 +791,8 @@ searchEl.addEventListener("keydown", (e) => {
 // 연결된 프로젝트에서 "내 이슈 / 프로젝트 전체" 는 쿼리가 달라 재요청.
 bindSeg("who", (d) => { who = d.who; });
 
-// 수동 새로고침: 리스트가 떠 있으면 깜빡임 없는 경량 갱신, 아니면 전체 렌더.
-document.getElementById("refresh").addEventListener("click", refreshSmart);
+// 수동 새로고침: 스피너를 표시하며 갱신(버튼을 누른 것을 시각적으로 알림).
+document.getElementById("refresh").addEventListener("click", manualRefresh);
 document.getElementById("new").addEventListener("click", openCreate);
 document.getElementById("settings").addEventListener("click", openSettings);
 
