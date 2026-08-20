@@ -24,6 +24,7 @@
       "browser:write",
       "git:read",
       "git:write",
+      "projects:read",
       "worktrees:read",
       "files:read",
       "files:write",
