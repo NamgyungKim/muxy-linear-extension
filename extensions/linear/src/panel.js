@@ -395,13 +395,20 @@ function renderList() {
   }
 }
 
-async function render() {
-  content.innerHTML = "";
-  content.append(el("div", { className: "loading muted" }, t("common.loading")));
+let rendering = false; // render 진행 중 여부(자동 새로고침 중복 실행 방지)
+
+async function render(opts = {}) {
+  const silent = opts.silent === true; // 자동 새로고침은 로딩 스피너를 띄우지 않고 조용히 갱신
+  rendering = true;
+  if (!silent) {
+    content.innerHTML = "";
+    content.append(el("div", { className: "loading muted" }, t("common.loading")));
+  }
 
   const config = await loadConfig();
   setLang(config.language);
   applyStaticI18n();
+  scheduleAutoRefresh(config.auto_refresh_seconds); // 설정된 주기로 자동 새로고침 예약(매 렌더마다 타이머 리셋)
   const searchbar = document.getElementById("searchbar");
 
   try {
@@ -470,7 +477,25 @@ async function render() {
   } catch (err) {
     content.innerHTML = "";
     content.append(errorBox(err));
+  } finally {
+    rendering = false;
   }
+}
+
+// 자동 새로고침 타이머. auto_refresh_seconds(0=끔)마다 조용히 목록을 다시 가져온다.
+// 매 render 마다 호출되어 타이머를 리셋하므로, 수동 새로고침·포커스·이벤트 갱신 직후
+// 다음 자동 새로고침까지 온전한 주기가 확보된다.
+let autoRefreshTimer = null;
+function scheduleAutoRefresh(seconds) {
+  if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  const n = Number(seconds);
+  if (!Number.isFinite(n) || n <= 0) return; // 0 이하 또는 잘못된 값이면 자동 새로고침 끔
+  const ms = Math.max(10, n) * 1000; // 과도한 폴링 방지를 위해 최소 10초
+  autoRefreshTimer = setInterval(() => {
+    // 패널이 안 보이거나 렌더링 중이면 건너뛴다(불필요한 API 호출 방지).
+    if (document.hidden || rendering) return;
+    render({ silent: true });
+  }, ms);
 }
 
 // 리스트가 비었을 때, 사유별 안내.

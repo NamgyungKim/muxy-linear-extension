@@ -44,6 +44,10 @@ export const CONFIG_DEFAULTS = {
   list_show_actions: true, // 행에서 상태별 액션 버튼 표시
   show_branch_bar: true, // 검색창 아래 현재 브랜치 표시줄
 
+  // 일정 주기(초)로 목록을 자동 새로고침한다. 0 = 끔(수동/포커스/이벤트에만 갱신).
+  // 패널이 화면에 보일 때만 동작하며, 최소 10초로 클램프된다.
+  auto_refresh_seconds: 60,
+
   // 상태별 액션(워크플로우). 각 액션은:
   //  - label: 버튼 이름
   //  - appliesTo: 이 액션을 보여줄 상태 이름들(빈 배열 = 모든 상태)
