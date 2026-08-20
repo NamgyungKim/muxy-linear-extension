@@ -8,6 +8,9 @@ body.modal {
 
 #app { max-width: 100%; }
 
+/* 탭으로 열릴 때는 넓은 화면에서 본문을 가운데 정렬하고 폭을 제한한다(모달과 동일 컴포넌트 재사용). */
+body.tab #app { max-width: 760px; margin: 0 auto; }
+
 .m-head { display: flex; align-items: center; gap: 8px; }
 .m-id {
   font-size: 12px;

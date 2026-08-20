@@ -17,6 +17,8 @@ body {
 
 /* 모달 페이지는 배경을 화면 폭에 맞춘다. */
 body.modal { padding: 14px; }
+/* 탭 페이지(이슈 상세를 풀 탭 웹뷰로): 넓은 화면에서 본문을 가운데로 모아 읽기 좋게. */
+body.tab { padding: 24px 20px; overflow-y: auto; }
 
 h1, h2, h3 { margin: 0; font-weight: 600; }
 

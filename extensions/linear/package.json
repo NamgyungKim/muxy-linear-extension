@@ -48,6 +48,13 @@
         "mode": "pinned"
       }
     ],
+    "tabTypes": [
+      {
+        "id": "issue",
+        "title": "Linear",
+        "entry": "tab/issue.html"
+      }
+    ],
     "commands": [
       {
         "id": "toggle-panel",
