@@ -13,6 +13,9 @@ import { setLang, t } from "./i18n.js";
 const muxy = window.muxy;
 const app = document.getElementById("app");
 const { issue, config } = muxy.data || {};
+// 같은 컴포넌트를 모달(muxy.modal.openWebview) 과 탭(muxy.tabs.open extensionWebView)
+// 양쪽에서 재사용한다. 탭으로 열리면 data.mode === "tab" 로 구분한다.
+const asTab = muxy.data?.mode === "tab";
 setLang(config?.language); // 패널이 넘긴 config 로 언어 적용
 
 let changed = false; // 목록 갱신이 필요한 변경이 있었는지
@@ -37,6 +40,11 @@ async function main() {
   if (!issue) {
     app.textContent = t("issue.cannotLoad");
     return;
+  }
+
+  // 탭으로 열렸으면 탭 제목을 이슈 식별자로 바꾼다(구버전엔 setTitle 없음 → 무시).
+  if (asTab) {
+    try { muxy.tabs?.setTitle?.(issue.identifier); } catch { /* setTitle 미지원 무시 */ }
   }
 
   app.innerHTML = `
@@ -312,10 +320,14 @@ async function main() {
     }
   });
 
-  // 액션 편집 모달 열기 — 저장됐으면 목록 새로고침되도록 changed 전달.
+  // 액션 편집 모달 열기.
+  // - 모달 컨텍스트: 저장됐으면 이슈 모달을 닫으며 changed 를 패널로 전달(목록 새로고침).
+  // - 탭 컨텍스트: 닫을 모달이 없으므로(submitWebview 불가) 탭은 그대로 둔다. 바뀐 액션은
+  //   탭을 다시 열면 반영되고, 패널 목록은 폴링으로 자동 갱신된다.
   $("edit-actions").addEventListener("click", async () => {
     const r = await muxy.modal.openWebview({ entry: "modals/actions.html", width: 560, height: 640 });
-    muxy.modal.submitWebview({ changed: changed || !!(r && r.saved) });
+    if (r && r.saved) changed = true;
+    if (!asTab) muxy.modal.submitWebview({ changed });
   });
 
   // 코멘트 작성 미리보기 토글
@@ -361,7 +373,9 @@ async function main() {
   });
 
   $("cancel").addEventListener("click", () => {
-    if (changed) muxy.modal.submitWebview({ changed: true });
+    // 탭 컨텍스트: 탭을 닫는다(변경은 패널 폴링이 반영). 모달 컨텍스트: 변경 있으면
+    // submitWebview 로 패널에 알리며 닫고, 없으면 그냥 닫는다.
+    if (!asTab && changed) muxy.modal.submitWebview({ changed: true });
     else muxy.lifecycle.close();
   });
 }

@@ -742,8 +742,20 @@ function errorBox(err) {
 
 async function openIssue(issue) {
   const config = await loadConfig();
-  // 실효 토큰 + 액션(글로벌+프로젝트 병합)을 모달에 전달.
+  // 실효 토큰 + 액션(글로벌+프로젝트 병합)을 상세 화면에 전달.
   const eff = { ...applyProjectSettings(config, projectCfg), actions: mergeActions(config.actions, projectCfg?.actions) };
+  // KNK-71: 이슈 상세를 좁은 모달 대신 풀 탭 웹뷰로 연다(같은 issue.js 컴포넌트 재사용).
+  // 탭 안에서 상태가 바뀌면 패널 폴링(3초)이 목록을 자동 갱신하므로 결과 처리가 따로 필요 없다.
+  // extensionWebView 를 지원하지 않는 구버전 muxy 에서는 예외를 잡아 기존 모달로 폴백한다.
+  try {
+    await muxy.tabs.open({
+      kind: "extensionWebView",
+      extension: { id: "linear", tabType: "issue", data: { issue, config: eff, mode: "tab" } },
+    });
+    return;
+  } catch (e) {
+    console.warn("[linear] 이슈를 탭으로 열기 실패 → 모달로 폴백:", e?.message || e);
+  }
   const result = await muxy.modal.openWebview({
     entry: "modals/issue.html",
     width: 820,
