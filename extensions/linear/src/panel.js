@@ -10,7 +10,7 @@ import { fetchMyIssues, fetchProjectIssues, fetchIssueById } from "./linear.js";
 import { readProjectConfig } from "./project.js";
 import { getActiveWork, clearActiveWork, isActiveIssue } from "./worklock.js";
 import { applicableActions, runAction, mergeActions } from "./actions.js";
-import { setLang, t } from "./i18n.js";
+import { setLang, getLang, t } from "./i18n.js";
 
 const muxy = window.muxy;
 const content = document.getElementById("content");
@@ -426,9 +426,16 @@ async function fetchIssueList(token, config) {
 
 // 렌더 결과에 영향을 주는 값만 뽑아 시그니처를 만든다. 값이 같으면 DOM 을 건드리지 않는다.
 function issuesSignature(issues) {
+  const d = displayCfg;
   return JSON.stringify({
     cur: currentIssueId,
     work: activeWork?.issueId || null,
+    // 표시에 영향 주는 설정/언어. 이게 바뀌면(설정 변경 등) 목록을 다시 그려야 한다.
+    view: [
+      getLang(), d.list_show_parent, d.list_show_state, d.list_show_priority,
+      d.list_show_project, d.list_show_milestone, d.list_show_assignee, d.list_show_actions,
+      !!d.api_token, !!d.agent_command, JSON.stringify(d.actions || null),
+    ],
     items: issues.map((i) => [
       i.identifier, i.state?.name, i.state?.color, i.title, i.priority,
       i.assignee?.displayName || i.assignee?.name || "",
@@ -479,10 +486,12 @@ function startPolling() {
 
 async function render() {
   busy = true;
+  const wasReady = listReady;    // 직전에 목록이 떠 있었나
+  const prevSig = lastSignature; // 직전에 그린 데이터 시그니처
   listReady = false;
   // 기존 목록을 비우지 않는다(깜빡임 방지). 로딩 중임은 상단바 스피너로만 표시하고,
-  // 새 데이터가 준비되면 renderList()가 그 자리에서 교체한다. 첫 로드라 목록이 비어
-  // 있으면 스피너만 잠깐 보인다.
+  // 데이터가 실제로 바뀐 경우에만 renderList()가 그 자리에서 교체한다(설정 닫기 등에서
+  // 동일 데이터를 다시 그려 깜빡이던 문제 제거). 첫 로드라 목록이 비어 있으면 스피너만 보인다.
   setLoading(true);
 
   const config = await loadConfig();
@@ -538,11 +547,13 @@ async function render() {
     console.log(`[linear] who=${who} count=${issues.length}`);
 
     populateStateFilter();
-    renderList();
+    // 직전에도 목록이 떠 있었고 데이터가 같으면 다시 그리지 않는다 → 목록 유지, 깜빡임 없음.
+    const sig = issuesSignature(issues);
+    if (!wasReady || sig !== prevSig) renderList();
     // 폴링에서 재사용할 토큰/시그니처 기록 + 리스트 표시 상태 on.
     currentToken = token;
     listReady = true;
-    lastSignature = issuesSignature(issues);
+    lastSignature = sig;
   } catch (err) {
     content.innerHTML = "";
     content.append(errorBox(err));
