@@ -54,8 +54,9 @@ export async function runAction(action, issue, config, opts = {}) {
       prompt,
     });
   } else {
-    // current: 현재 활성 worktree/브랜치에서 실행
-    await finishWork({ config, prompt });
+    // current: 현재 활성 worktree/브랜치에서 실행.
+    // branch 를 넘겨, "같은 이슈"에서 도는 에이전트에만 프롬프트를 이어붙이게 한다(KNK-72).
+    await finishWork({ config, prompt, branch });
   }
 
   // 실행 후 상태 변경(상태 이름 또는 타입으로 매칭).

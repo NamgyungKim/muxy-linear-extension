@@ -71,59 +71,56 @@ function parentDir(path) {
   return path.replace(/\/+$/, "").replace(/\/[^/]+$/, "") || "/";
 }
 
-// 활성 worktree 루트별로 터미널 탭 하나를 재사용한다.
-// (root → tabID) 매핑을 storage 에 보관하고, 그 탭의 터미널 pane 이 아직 살아 있으면
-// 새 탭을 열지 않고 그 pane 으로 명령을 보낸다. 없으면 그때만 새 터미널을 연다.
-// 재사용 스코프는 "명령이 실제로 실행되는 시점의 활성 worktree 루트"라, worktree 를
-// 새로 만들든(branch/current 라 안 만들든) 지금 명령이 돌 디렉터리에 항상 대응된다.
-const TERMINAL_MAP_KEY = "terminal_tab_by_root";
-
-async function openOrReuseTerminal(command) {
-  const muxy = window.muxy;
-
-  // 명령이 실행될 활성 worktree 루트(캐시 우회를 위해 fresh).
-  let root = "";
-  try {
-    const info = await muxy.git.repoInfo({ fresh: true });
-    root = info?.root ? String(info.root) : "";
-  } catch {
-    /* 저장소 정보 조회 실패 시 스코프 없이 진행(항상 새 탭) */
-  }
-
-  // 이 루트에 매핑된 기존 터미널 탭이 살아 있으면 재사용.
-  let map = {};
-  try {
-    map = (await muxy.storage.get(TERMINAL_MAP_KEY)) || {};
-  } catch {
-    map = {};
-  }
-  const wantTab = root ? map[root] : null;
-  if (wantTab) {
-    try {
-      const panes = await muxy.panes.list();
-      const pane = panes.find((p) => p && p.kind === "terminal" && p.tabID === wantTab);
-      if (pane) {
-        // 기존 터미널로 포커스 후 명령 실행(개행으로 즉시 실행).
-        await muxy.tabs.switchTo(pane.tabID);
-        await muxy.panes.send(pane.paneID, command + "\n");
-        return command;
-      }
-    } catch {
-      /* pane 조회/전송 실패 시 아래에서 새 탭을 연다 */
-    }
-  }
-
-  // 재사용할 터미널이 없으면 새로 연다.
-  const tabID = await muxy.tabs.open({ kind: "terminal", command });
-  if (root && tabID) {
-    map[root] = tabID;
-    try {
-      await muxy.storage.set(TERMINAL_MAP_KEY, map);
-    } catch {
-      /* 매핑 저장 실패는 무시(다음에 새 탭이 열릴 뿐) */
-    }
-  }
+// 새 터미널 탭을 열어 명령을 실행한다("작업 시작"처럼 에이전트를 새로 띄우는 경우).
+async function openTerminal(command) {
+  await window.muxy.tabs.open({ kind: "terminal", command });
   return command;
+}
+
+// 브랜치명 정규화: 이슈 매칭용. refs/heads/·origin/ 접두어와 뒤 슬래시를 떼고 NFC 로 통일.
+function normBranch(s) {
+  return String(s ?? "")
+    .normalize("NFC")
+    .replace(/^refs\/heads\//, "")
+    .replace(/^origin\//, "")
+    .replace(/\/+$/, "");
+}
+
+// "이 이슈의 브랜치"에서 실행 중인 AI 에이전트 세션의 paneID 를 찾는다(없으면 null).
+//
+// 반드시 "같은 이슈"에서만 이어가야 하므로, 루트/cwd 가 아니라 에이전트가 속한 worktree 의
+// 브랜치가 이 이슈의 브랜치와 일치할 때만 매칭한다. (branch 모드처럼 여러 이슈가 같은 루트를
+// 공유해도, 브랜치는 이슈마다 다르므로 다른 이슈의 세션에 프롬프트가 새지 않는다.)
+//
+// muxy.agents.list() = 살아 있는 에이전트 세션 { worktreeID, paneID, status, ... }.
+// muxy.worktrees.list() = worktree 별 { id, branch, ... }. 둘을 worktreeID 로 이어
+// "브랜치가 일치하는 worktree 에서 도는 에이전트"만 고른다. pane 이 종료되면 agents.list
+// 에서도 빠지므로, 목록에 있으면 그 세션에 실제로 이어서 입력할 수 있다.
+async function findAgentPaneForBranch(branch) {
+  const muxy = window.muxy;
+  if (!muxy.agents?.list || !muxy.worktrees?.list) return null; // API 미지원 → 조용히 폴백.
+
+  const target = normBranch(branch);
+  if (!target) return null; // 이슈 브랜치를 모르면 매칭 불가 → 폴백.
+
+  let agents = [];
+  try { agents = await muxy.agents.list(); } catch { return null; }
+  if (!Array.isArray(agents) || !agents.length) return null;
+
+  let worktrees = [];
+  try { worktrees = await muxy.worktrees.list(); } catch { return null; }
+  // worktreeID → 그 worktree 에 체크아웃된 브랜치.
+  const branchByWtId = new Map((worktrees || []).map((w) => [w.id, normBranch(w.branch)]));
+
+  // 여러 개면 사람이 다음 지시를 넣기 가장 안전한 순서로: 입력 대기(waiting) > 종료된 턴(idle) > 작업중(working).
+  const rank = { waiting: 3, idle: 2, working: 1 };
+  let best = null;
+  for (const a of agents) {
+    if (!a || !a.paneID) continue;
+    if (branchByWtId.get(a.worktreeID) !== target) continue; // 다른 이슈(브랜치)면 건너뜀.
+    if (!best || (rank[a.status] || 0) > (rank[best.status] || 0)) best = a;
+  }
+  return best ? best.paneID : null;
 }
 
 // 저장소 루트의 마지막 세그먼트(폴더명).
@@ -157,7 +154,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
   // 브랜치/worktree 전환 후 실제 실행 디렉터리에 프롬프트 파일을 쓰고 터미널을 연다.
   const launch = async () => {
     await writeStartPrompt(prompt);
-    return openOrReuseTerminal(command);
+    return openTerminal(command);
   };
 
   // 한글 브랜치명은 NFC/NFD 정규화가 달라 비교가 어긋날 수 있으므로 NFC 로 통일해 비교한다.
@@ -237,14 +234,43 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
   return command;
 }
 
-// 작업 종료: 현재 활성 worktree/브랜치에서 종료 프롬프트로 에이전트를 실행한다.
+// 작업 종료: 현재 활성 worktree/브랜치에서 종료 프롬프트로 에이전트를 이어서 진행한다.
 // (브랜치/worktree 를 새로 만들지 않는다 — 지금 작업 중인 곳에서 마무리 절차를 돌린다.)
-// opts: { config, prompt }
-export async function finishWork({ config, prompt }) {
+//
+// (KNK-72) "작업 시작"으로 띄운 에이전트가 그 탭에서 아직 돌고 있으면, 새 탭/새 세션을 열지 않고
+// 그 세션 pane 에 프롬프트를 그대로 입력해 같은 대화에 "이어서" 진행한다. `claude "프롬프트"`
+// 처럼 감싸지 않고 프롬프트 텍스트만 보내는 이유: 이미 실행 중인 에이전트의 입력창에 넣어
+// 새 지시로 제출하기 위해서다(감싸면 그 문자열이 그대로 메시지로 들어가 버린다).
+// 단, 반드시 "같은 이슈(=이 이슈의 브랜치)"에서 도는 에이전트에만 이어간다(branch 로 판별).
+// 이어갈 에이전트가 없으면(세션 종료 등) 예전처럼 에이전트를 새로 실행한다.
+// opts: { config, prompt, branch }  (branch = 이 이슈의 브랜치)
+export async function finishWork({ config, prompt, branch }) {
+  const muxy = window.muxy;
   // 프롬프트가 비었으면(선택값) 빈 인자를 넘기지 않고 에이전트만 실행한다.
   const p = String(prompt ?? "").trim();
+
+  const paneID = await findAgentPaneForBranch(branch);
+  if (paneID) {
+    try {
+      // 프롬프트를 입력창에 넣은 뒤, "Enter" 키로 제출한다 → 실행 중인 에이전트가 이어받는다.
+      // 주의: panes.send 의 "\n"(LF, 0x0A)은 제출이 아니라 입력창 안 줄바꿈이라 실행이 안 된다.
+      // 제출은 반드시 Enter 키 = CR(0x0D)이어야 하므로 sendKeys("enter")로 보낸다.
+      // 프롬프트는 멀티라인일 수 있으니 본문은 send 로 한 번에(줄바꿈 유지), 마지막에 Enter 한 번.
+      // (프롬프트가 비었으면 빈 줄을 제출하지 않고 포커스만 옮긴다.)
+      if (p) {
+        await muxy.panes.send(paneID, p);
+        await muxy.panes.sendKeys(paneID, "enter");
+      }
+      // 사용자가 진행 상황을 볼 수 있게 그 탭(= pane 이 있는 탭)을 앞으로 가져온다.
+      try { await muxy.tabs.switchTo(paneID); } catch { /* 포커스 실패는 무시 */ }
+      return p || config.agent_command;
+    } catch {
+      /* 전송 실패(예: pane 표면 준비 안 됨) → 아래 폴백으로 새 터미널 실행 */
+    }
+  }
+
   const command = p ? `${config.agent_command} ${shq(prompt)}` : config.agent_command;
-  await openOrReuseTerminal(command);
+  await openTerminal(command);
   return command;
 }
 

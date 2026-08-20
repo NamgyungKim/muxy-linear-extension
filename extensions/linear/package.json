@@ -20,6 +20,7 @@
       "tabs:write",
       "panes:read",
       "panes:write",
+      "agents:read",
       "browser:write",
       "git:read",
       "git:write",
