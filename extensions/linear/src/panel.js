@@ -34,12 +34,18 @@ const collapsed = new Set(); // 접힌 부모 이슈 id 집합(자식 숨김)
 
 // 자동 새로고침(폴링) 상태. 최소 1초 간격으로 신규 데이터를 가져오되, 실제로 바뀐
 // 경우에만 목록 DOM 을 다시 그린다 → 리스트가 0으로 비었다가 다시 나오는 깜빡임 제거.
-const POLL_MS = 1000; // 폴링 간격(요구사항: 아무리 빨라도 1초에 한 번)
+const POLL_MS = 3000; // 폴링 간격(3초. 시간당 ~1200회로 Linear 한도(2500) 대비 여유)
 let pollTimer = null; // setInterval 핸들
 let currentToken = null; // 마지막으로 사용한 실효 토큰(폴링에서 재사용)
 let listReady = false; // 리스트가 실제로 표시된 상태인가(연결+키 OK)
 let lastSignature = null; // 마지막으로 그린 데이터의 시그니처(변경 감지용)
 let busy = false; // render/폴링 동시 실행 방지 가드
+// 패널이 화면에 활성(포커스)일 때만 폴링한다. muxy.onFocus(true/false) 로 갱신하며,
+// 초기값은 muxy.focused(현재 서페이스 포커스 상태)로 잡는다 → 시작 시 뒤에 가려진
+// 패널은 폴링하지 않는다. onFocus/focused 가 없는 구버전이면 true 로 폴백(항상 폴링).
+// 비활성 패널은 요청을 보내지 않아 Linear 요청 한도 소모를 줄인다. document.hidden 은
+// muxy 다중 웹뷰에서 신뢰할 수 없어 쓰지 않는다.
+let active = muxy.focused ?? true;
 
 // 우선순위 라벨(Linear: 0 없음, 1 긴급, 2 높음, 3 보통, 4 낮음). 언어에 따라 실행 시 조회.
 const priorityLabel = (p) => ({ 1: t("priority.urgent"), 2: t("priority.high"), 3: t("priority.normal"), 4: t("priority.low") }[p]);
@@ -511,7 +517,7 @@ function issuesSignature(issues) {
 // 보이는 상태에서도 Page Visibility API 상 hidden 으로 잡혀 폴링이 통째로 막힌다(자동
 // 새로고침이 안 되는 원인이었다). 지속 폴링이 요구사항이므로 항상 돌린다.
 async function pollTick() {
-  if (busy || !listReady || !currentToken) return;
+  if (!active || busy || !listReady || !currentToken) return;
   busy = true;
   try {
     const config = await loadConfig();
@@ -813,10 +819,14 @@ safeSubscribe("worktree.headChanged", refreshSmart);
 // 프로젝트 전환은 연결 대상 자체가 바뀌므로 전체 렌더로 다시 구성한다.
 safeSubscribe("project.switched", render);
 
-// 패널이 다시 활성화(포커스)될 때 자동 새로고침 — 터미널/Linear 웹 등 외부 변경 반영.
+// 포커스 상태로 폴링을 게이트한다. 비활성(뒤에 가려진) 패널은 요청을 멈춰 Linear
+// 요청 한도를 아끼고, 다시 활성화되면 즉시 한 번 새로고침해 밀린 변경을 반영한다.
 try {
-  muxy.onFocus?.((focused) => { if (focused) refreshSmart(); });
-} catch { /* onFocus 없으면 무시 */ }
+  muxy.onFocus?.((focused) => {
+    active = !!focused;
+    if (active) refreshSmart(); // 포커스 복귀 시 즉시 최신화(그 후 폴링이 이어감)
+  });
+} catch { /* onFocus 없으면 무시 → active=true 로 항상 폴링 */ }
 
 render();
 startPolling(); // 최소 1초 간격으로 신규 데이터를 지속적으로 가져온다.
