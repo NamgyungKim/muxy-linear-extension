@@ -55,11 +55,25 @@ export const CONFIG_DEFAULTS = {
   //  - base: 분기 베이스 브랜치(빈 값 = 기본 베이스)
   //  - prompt: 터미널에서 실행할 에이전트 프롬프트(플레이스홀더 사용 가능)
   //  - toState: 실행 후 바꿀 상태 — 상태 이름 또는 타입(started/unstarted/backlog/completed/canceled), 빈 값 = 변경 안 함
-  //  - lock: 작업 잠금 — "start"(잠금 시작) | "end"(잠금 해제) | "none"
   //  - confirm: 실행 전 확인 창 표시 여부
+  //  - mode: Claude 권한 모드 — ""(기본) | "plan" | "acceptEdits" | "bypassPermissions".
+  //          값이 있으면 실행 명령에 `--permission-mode <mode>` 로 붙는다(agent 가 claude 일 때만 의미 있음).
+  //  - model: Claude 모델 — ""(기본) | "opus" | "sonnet" | "haiku". 값이 있으면 `--model <model>` 로 붙는다.
   // 초기에는 기본 액션을 만들지 않는다. 사용자가 액션 편집기에서 직접 추가한다.
   actions: [],
 };
+
+// 액션의 Claude 실행 플래그(권한 모드 / 모델)를 CLI 인자 문자열로 만든다.
+// 기본 에이전트(claude)에만 의미가 있으며, 지정된 값이 없으면 빈 문자열을 돌려준다.
+// 값은 미리 정의된 화이트리스트만 허용해 임의 문자열이 명령줄에 끼어드는 것을 막는다.
+const MODE_VALUES = new Set(["plan", "acceptEdits", "bypassPermissions"]);
+const MODEL_VALUES = new Set(["opus", "sonnet", "haiku"]);
+export function agentFlags(action) {
+  const parts = [];
+  if (action && MODE_VALUES.has(action.mode)) parts.push("--permission-mode", action.mode);
+  if (action && MODEL_VALUES.has(action.model)) parts.push("--model", action.model);
+  return parts.join(" ");
+}
 
 // 등록된 키 목록에서 활성 항목을 고른다(활성 id가 없거나 목록에 없으면 첫 항목).
 export function activeTokenEntry(config) {
