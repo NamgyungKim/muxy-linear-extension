@@ -53,32 +53,8 @@ export const CONFIG_DEFAULTS = {
   //  - toState: 실행 후 바꿀 상태 — 상태 이름 또는 타입(started/unstarted/backlog/completed/canceled), 빈 값 = 변경 안 함
   //  - lock: 작업 잠금 — "start"(잠금 시작) | "end"(잠금 해제) | "none"
   //  - confirm: 실행 전 확인 창 표시 여부
-  actions: [
-    {
-      id: "start",
-      label: "작업 시작",
-      icon: "🚀",
-      appliesTo: [],
-      run: "worktree",
-      base: "",
-      prompt: "/리니어 {identifier}",
-      toState: "started",
-      lock: "start",
-      confirm: false,
-    },
-    {
-      id: "finish",
-      label: "작업 종료",
-      icon: "🏁",
-      appliesTo: [],
-      run: "current",
-      base: "",
-      prompt: "/작업완료",
-      toState: "",
-      lock: "end",
-      confirm: true,
-    },
-  ],
+  // 초기에는 기본 액션을 만들지 않는다. 사용자가 액션 편집기에서 직접 추가한다.
+  actions: [],
 };
 
 // 등록된 키 목록에서 활성 항목을 고른다(활성 id가 없거나 목록에 없으면 첫 항목).
