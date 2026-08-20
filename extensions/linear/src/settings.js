@@ -44,8 +44,7 @@ async function main() {
     <div id="scope-body"></div>
     <p id="err" class="error" hidden></p>
     <div class="actions">
-      <button id="cancel">${t("common.cancel")}</button>
-      <button id="save" class="primary">${t("common.save")}</button>
+      <button id="close" class="primary">${t("common.close")}</button>
     </div>
   `;
 
@@ -527,17 +526,17 @@ async function main() {
     applyScope();
   });
 
-  document.getElementById("cancel").addEventListener("click", () => muxy.lifecycle.close());
-
-  // ── 저장(스코프별) ─────────────────────────────────────────────
+  // ── 자동 저장(스코프별) ────────────────────────────────────────
+  // 저장 버튼 없이, 값이 바뀔 때마다 현재 스코프를 곧바로 저장한다(KNK-62).
   const val = (id) => document.getElementById(id)?.value.trim() ?? "";
   const checked = (id) => !!document.getElementById(id)?.checked;
 
-  async function saveGlobal() {
+  // 전역 설정을 muxy.storage 에 저장하고 인메모리 config 도 최신화한다(재렌더 대비).
+  async function persistGlobal() {
     const tokenSel = document.getElementById("api_token_active");
     const activeId = tokenSel?.value || "";
     const activeToken = tokenEntries.find((e) => e.id === activeId)?.token || "";
-    await saveConfig({
+    const next = {
       language: document.getElementById("language")?.value || config.language,
       api_token_active: activeId,
       api_token: activeToken, // 하위 호환: 활성 키를 단일 값에도 반영
@@ -553,15 +552,17 @@ async function main() {
       list_show_parent: checked("list_show_parent"),
       list_show_actions: checked("list_show_actions"),
       show_branch_bar: checked("show_branch_bar"),
-    });
-    muxy.toast?.({ title: t("set.savedGlobal") });
-    muxy.modal.submitWebview({ saved: true });
+    };
+    await saveConfig(next);
+    Object.assign(config, next);
   }
 
-  async function saveProject() {
+  // 프로젝트 오버라이드(.linear.json)를 저장한다. 팀/프로젝트가 아직 없으면 조용히 건너뛴다.
+  async function persistProject() {
     const teamSel = document.getElementById("link-team");
     const projSel = document.getElementById("link-project");
     const pKey = document.getElementById("p_api_key");
+    if (!teamSel || !projSel || !pKey) return; // 아직 렌더 전
     // 연결 정보
     const cfg = { ...(projectCfg || {}) };
     cfg.teamKey = teamSel?.dataset.key || cfg.teamKey || "";
@@ -588,20 +589,35 @@ async function main() {
     if (Object.keys(settings).length) cfg.settings = settings;
     else delete cfg.settings;
 
-    if (!cfg.teamKey && !cfg.projectId) {
-      errEl.hidden = false;
-      errEl.textContent = t("set.selectTeamFirst");
-      return;
-    }
+    if (!cfg.teamKey && !cfg.projectId) return; // 연결 대상이 아직 없음 — 저장 보류
     await writeProjectConfig(cfg);
     projectCfg = cfg;
-    muxy.toast?.({ title: t("set.savedProject"), body: cfg.projectName || cfg.teamKey });
-    muxy.modal.submitWebview({ saved: true });
   }
 
-  document.getElementById("save").addEventListener("click", async () => {
-    if (scope === "project") await saveProject();
-    else await saveGlobal();
+  async function persistScope() {
+    if (scope === "project") await persistProject();
+    else await persistGlobal();
+  }
+
+  // 입력 폭주(타이핑)를 눌러 담아 잠깐 뒤에 저장.
+  function debounce(fn, ms) {
+    let tid = null;
+    return () => {
+      if (tid) clearTimeout(tid);
+      tid = setTimeout(() => { tid = null; fn(); }, ms);
+    };
+  }
+  const autoSave = debounce(() => { persistScope().catch(() => {}); }, 300);
+
+  // #scope-body 는 스코프 전환/재렌더에도 유지되는 컨테이너이므로 위임으로 한 번만 바인딩한다.
+  // 값 변경(select/checkbox)은 change, 텍스트 입력은 input 으로 감지. 버튼(click)은 대상 아님.
+  body.addEventListener("change", autoSave);
+  body.addEventListener("input", autoSave);
+
+  // 닫기: 디바운스 대기분을 즉시 반영한 뒤 닫는다.
+  document.getElementById("close").addEventListener("click", async () => {
+    try { await persistScope(); } catch { /* 무시 */ }
+    muxy.lifecycle.close();
   });
 
   applyScope();
