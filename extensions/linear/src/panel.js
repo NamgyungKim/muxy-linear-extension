@@ -435,8 +435,11 @@ function issuesSignature(issues) {
 
 // 폴링용 경량 새로고침: 스피너 없이 조용히 데이터를 가져와 바뀐 경우에만 다시 그린다.
 // 연결/키 상태 등 구조가 바뀌는 변경은 여기서 다루지 않고 render() 가 담당한다.
+// NOTE: document.hidden 로는 가드하지 않는다. muxy 패널은 여러 웹뷰 중 하나라, 화면에
+// 보이는 상태에서도 Page Visibility API 상 hidden 으로 잡혀 폴링이 통째로 막힌다(자동
+// 새로고침이 안 되는 원인이었다). 지속 폴링이 요구사항이므로 항상 돌린다.
 async function pollTick() {
-  if (busy || !listReady || !currentToken || document.hidden) return;
+  if (busy || !listReady || !currentToken) return;
   busy = true;
   try {
     const config = await loadConfig();
@@ -464,7 +467,7 @@ function refreshSmart() {
   else render();
 }
 
-// 1초 간격 폴링 시작(중복 방지). pollTick 이 busy/listReady/hidden 을 스스로 가드한다.
+// 1초 간격 폴링 시작(중복 방지). pollTick 이 busy/listReady/currentToken 을 스스로 가드한다.
 function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(pollTick, POLL_MS);
