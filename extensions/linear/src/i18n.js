@@ -243,7 +243,7 @@ const DICT = {
     "ae.savedProjectBody": "{name} · {n}",
     "ae.savedGlobal": "Global actions saved",
     "ae.savedGlobalBody": "{n}",
-    "ae.requiredErr": "Fill in the required fields (button name, prompt). Check the red fields.",
+    "ae.requiredErr": "Fill in the required field (button name). Check the red fields.",
     "ae.globalSummary": "Global default — status: {applies} · {run} · base: {base} · prompt: {prompt} · instantly → {toState}",
 
     // ── settings ──
@@ -542,7 +542,7 @@ const DICT = {
     "ae.savedProjectBody": "{name} · {n}개",
     "ae.savedGlobal": "글로벌 액션 저장됨",
     "ae.savedGlobalBody": "{n}개",
-    "ae.requiredErr": "필수값(버튼 이름·프롬프트)을 채워주세요. 빨간 칸을 확인하세요.",
+    "ae.requiredErr": "필수값(버튼 이름)을 채워주세요. 빨간 칸을 확인하세요.",
     "ae.globalSummary": "글로벌 기본 — 상태: {applies} · {run} · 베이스: {base} · 프롬프트: {prompt} · 실행 즉시 → {toState}",
 
     "set.title": "Linear 설정",
@@ -840,7 +840,7 @@ const DICT = {
     "ae.savedProjectBody": "{name} · {n}件",
     "ae.savedGlobal": "グローバルのアクションを保存",
     "ae.savedGlobalBody": "{n}件",
-    "ae.requiredErr": "必須項目(ボタン名・プロンプト)を入力してください。赤い欄を確認してください。",
+    "ae.requiredErr": "必須項目(ボタン名)を入力してください。赤い欄を確認してください。",
     "ae.globalSummary": "グローバル既定 — ステータス: {applies} · {run} · ベース: {base} · プロンプト: {prompt} · 実行と同時 → {toState}",
 
     "set.title": "Linear 設定",
@@ -1138,7 +1138,7 @@ const DICT = {
     "ae.savedProjectBody": "{name} · {n} 个",
     "ae.savedGlobal": "全局操作已保存",
     "ae.savedGlobalBody": "{n} 个",
-    "ae.requiredErr": "请填写必填项(按钮名称·提示词)。请检查红色框。",
+    "ae.requiredErr": "请填写必填项(按钮名称)。请检查红色框。",
     "ae.globalSummary": "全局默认 — 状态：{applies} · {run} · 基础：{base} · 提示词：{prompt} · 即刻 → {toState}",
 
     "set.title": "Linear 设置",

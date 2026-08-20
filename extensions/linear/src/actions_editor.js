@@ -364,10 +364,9 @@ function actionCard(action, index) {
   card.append(field(t("issue.baseBranch"), baseControl(action), t("ae.baseHelp")));
 
   // prompt + ✨ 프롬프트 만들기
-  const prompt = el("textarea", { placeholder: g ? (g.prompt || t("ae.none")) : t("ae.promptPh") });
+  const prompt = el("textarea", { className: "prompt-input", placeholder: g ? (g.prompt || t("ae.none")) : t("ae.promptPh") });
   prompt.value = action.prompt || "";
-  prompt.dataset.req = "prompt"; // 필수값 검증 대상
-  prompt.addEventListener("input", () => { action.prompt = prompt.value; prompt.classList.remove("invalid"); });
+  prompt.addEventListener("input", () => { action.prompt = prompt.value; });
   const promptField = el("div", { className: "field" });
   const phead = el("div", { className: "row", style: "margin-bottom:4px" });
   const plab = el("span", { className: "label", style: "margin:0" }, t("ae.prompt"));
@@ -531,7 +530,7 @@ async function main() {
     muxy.toast?.({ title: t("ae.revertedGlobal"), body: projectName });
     muxy.modal.submitWebview({ saved: true });
   });
-  // 필수값 검증: 버튼 이름·프롬프트가 비면 해당 input에 빨간 테두리(.invalid)를 칠하고 저장을 막는다.
+  // 필수값 검증: 버튼 이름이 비면 해당 input에 빨간 테두리(.invalid)를 칠하고 저장을 막는다.(프롬프트는 선택값)
   function validateRequired() {
     const errEl = document.getElementById("err");
     let firstBad = null;
@@ -541,7 +540,6 @@ async function main() {
       if (!card) return;
       const checks = [
         [card.querySelector('[data-req="label"]'), !a.label || !a.label.trim()],
-        [card.querySelector('[data-req="prompt"]'), !a.prompt || !a.prompt.trim()],
       ];
       for (const [inp, empty] of checks) {
         if (!inp) continue;
@@ -563,6 +561,8 @@ async function main() {
   document.getElementById("cancel").addEventListener("click", () => muxy.lifecycle.close());
   document.getElementById("save").addEventListener("click", async () => {
     if (!validateRequired()) return;
+    // 프롬프트는 선택값 — 공백만 남은 값은 빈 값으로 정규화(실행 시 공백 인자 전달 방지).
+    for (const a of actions) a.prompt = a.prompt?.trim() ? a.prompt : "";
     if (scope === "project") {
       await writeProjectConfig({ ...projectCfg, actions });
       muxy.toast?.({ title: t("ae.savedProject"), body: t("ae.savedProjectBody", { name: projectName, n: actions.length }) });

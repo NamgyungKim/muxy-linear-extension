@@ -90,6 +90,9 @@ body.modal {
 .token-row .token-key { flex: 1 1 auto; }
 .token-row .token-del { flex: 0 0 auto; }
 
+/* 액션 프롬프트 입력칸 — 여러 줄 프롬프트를 넉넉히 볼 수 있게 높게 */
+textarea.prompt-input { min-height: 140px; line-height: 1.5; }
+
 /* 필수값 미입력 표시 — 빨간 테두리 */
 .invalid,
 input.invalid,

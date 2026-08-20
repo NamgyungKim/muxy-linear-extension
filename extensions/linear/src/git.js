@@ -151,7 +151,9 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
   // 전환 후 새 worktree 에 이 설정을 전파해 "설정이 사라지는" 문제를 막는다(KNK-67).
   const savedProjectCfg = await readProjectConfig();
   // 명령은 프롬프트 내용과 무관하게 항상 동일(shellExact 재사용). 실제 프롬프트는 파일로 넘긴다.
-  const command = `${config.agent_command} "$(cat ${START_PROMPT_PATH})"`;
+  // 프롬프트가 비었으면(선택값) 빈 인자를 넘기지 않고 에이전트만 실행한다.
+  const hasPrompt = !!String(prompt ?? "").trim();
+  const command = hasPrompt ? `${config.agent_command} "$(cat ${START_PROMPT_PATH})"` : config.agent_command;
   // 브랜치/worktree 전환 후 실제 실행 디렉터리에 프롬프트 파일을 쓰고 터미널을 연다.
   const launch = async () => {
     await writeStartPrompt(prompt);
@@ -239,7 +241,9 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
 // (브랜치/worktree 를 새로 만들지 않는다 — 지금 작업 중인 곳에서 마무리 절차를 돌린다.)
 // opts: { config, prompt }
 export async function finishWork({ config, prompt }) {
-  const command = `${config.agent_command} ${shq(prompt)}`;
+  // 프롬프트가 비었으면(선택값) 빈 인자를 넘기지 않고 에이전트만 실행한다.
+  const p = String(prompt ?? "").trim();
+  const command = p ? `${config.agent_command} ${shq(prompt)}` : config.agent_command;
   await openOrReuseTerminal(command);
   return command;
 }
