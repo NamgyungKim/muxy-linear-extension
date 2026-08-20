@@ -20,8 +20,6 @@ export const CONFIG_DEFAULTS = {
   default_base_branch: "develop",
   // 작업 시작 시 기본으로 worktree 를 만들지 여부.
   use_worktree: true,
-  // worktree 를 만들 상위 경로(비우면 저장소 루트의 형제 위치).
-  worktree_root: "",
   // 이슈 클릭 시 터미널에서 실행할 에이전트 CLI.
   agent_command: "claude",
   // 작업 시작 시 에이전트에 전달할 초기 프롬프트 템플릿.
@@ -133,12 +131,12 @@ export function effectiveToken(config, projectCfg) {
 }
 
 // 프로젝트 스코프의 "핵심 실행값" 오버라이드를 전역 설정 위에 병합한 flat 설정을 만든다.
-// projectCfg.settings 의 비지 않은 값(default_base_branch / worktree_root / agent_command)만 덮어쓰고,
+// projectCfg.settings 의 비지 않은 값(default_base_branch / agent_command)만 덮어쓰고,
 // api_token 은 effectiveToken 규칙으로 채운다. 액션 병합은 호출부(mergeActions)에서 따로 처리한다.
 export function applyProjectSettings(config, projectCfg) {
   const eff = { ...config, api_token: effectiveToken(config, projectCfg) };
   const s = projectCfg?.settings || {};
-  for (const k of ["default_base_branch", "worktree_root", "agent_command"]) {
+  for (const k of ["default_base_branch", "agent_command"]) {
     const v = s[k];
     if (v !== undefined && v !== null && String(v).trim() !== "") eff[k] = v;
   }

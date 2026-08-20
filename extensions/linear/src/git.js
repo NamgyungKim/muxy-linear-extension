@@ -193,7 +193,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
       await muxy.git.worktree.switchTo({ identifier: existingWt.branch });
     } else {
       const repo = await muxy.git.repoInfo();
-      const parent = config.worktree_root?.trim() || parentDir(repo.root);
+      const parent = parentDir(repo.root); // worktree 는 항상 저장소 루트의 형제 위치에 만든다.
       const wtPath = `${parent}/${baseName(repo.root)}-${slug(branch)}`;
       try {
         // 브랜치가 이미 있으면 새로 만들지 않고 그 브랜치로 worktree 를 붙인다.

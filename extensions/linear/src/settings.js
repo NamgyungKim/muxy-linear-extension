@@ -211,11 +211,6 @@ async function main() {
       </div>
 
       <div class="field">
-        <span class="label">${t("set.worktreeRoot")}</span>
-        <input type="text" id="worktree_root" value="${escapeHtml(config.worktree_root)}" placeholder="${t("set.worktreeRootPh")}" />
-      </div>
-
-      <div class="field">
         <span class="label">${t("set.agent")}</span>
         <select id="agent_select"></select>
         <input type="text" id="agent_command" value="${escapeHtml(config.agent_command)}" placeholder="${t("set.agentPh")}" style="margin-top:6px" />
@@ -357,11 +352,6 @@ async function main() {
       <div class="field">
         <span class="label">${t("set.baseBranch")}</span>
         <select id="p_base"></select>
-      </div>
-
-      <div class="field">
-        <span class="label">${t("set.worktreeRoot")}</span>
-        <input type="text" id="p_worktree" value="${escapeHtml(s.worktree_root || "")}" placeholder="${escapeHtml(inheritedText(config.worktree_root))}" />
       </div>
 
       <div class="field">
@@ -542,7 +532,6 @@ async function main() {
       api_token: activeToken, // 하위 호환: 활성 키를 단일 값에도 반영
       team_key: val("team_key"),
       default_base_branch: val("default_base_branch") || "develop",
-      worktree_root: val("worktree_root"),
       agent_command: val("agent_command") || "claude",
       list_show_state: checked("list_show_state"),
       list_show_priority: checked("list_show_priority"),
@@ -581,10 +570,8 @@ async function main() {
     // 핵심 실행값 오버라이드(빈 값은 제외)
     const settings = {};
     const base = val("p_base");
-    const worktree = val("p_worktree");
     const agent = val("p_agent_command");
     if (base) settings.default_base_branch = base;
-    if (worktree) settings.worktree_root = worktree;
     if (agent) settings.agent_command = agent;
     if (Object.keys(settings).length) cfg.settings = settings;
     else delete cfg.settings;
