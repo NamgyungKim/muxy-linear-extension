@@ -51,7 +51,6 @@ export const CONFIG_DEFAULTS = {
   //  - base: 분기 베이스 브랜치(빈 값 = 기본 베이스)
   //  - prompt: 터미널에서 실행할 에이전트 프롬프트(플레이스홀더 사용 가능)
   //  - toState: 실행 후 바꿀 상태 — 상태 이름 또는 타입(started/unstarted/backlog/completed/canceled), 빈 값 = 변경 안 함
-  //  - lock: 작업 잠금 — "start"(잠금 시작) | "end"(잠금 해제) | "none"
   //  - confirm: 실행 전 확인 창 표시 여부
   actions: [
     {
@@ -63,7 +62,6 @@ export const CONFIG_DEFAULTS = {
       base: "",
       prompt: "/리니어 {identifier}",
       toState: "started",
-      lock: "start",
       confirm: false,
     },
     {
@@ -75,7 +73,6 @@ export const CONFIG_DEFAULTS = {
       base: "",
       prompt: "/작업완료",
       toState: "",
-      lock: "end",
       confirm: true,
     },
   ],

@@ -3,7 +3,6 @@
 import { startWork, finishWork, defaultBranch } from "./git.js";
 import { renderPrompt } from "./config.js";
 import { fetchTeamStates, updateIssueState } from "./linear.js";
-import { getActiveWork, setActiveWork, clearActiveWork, isActiveIssue } from "./worklock.js";
 
 // 글로벌 + 프로젝트 액션을 합친 "실효 액션".
 // 프로젝트 액션은 글로벌 위에 추가되며, 같은 id면 글로벌을 덮어쓴다.
@@ -22,29 +21,12 @@ export function applicableActions(actions, issue) {
   return (actions || []).filter((a) => !a.appliesTo?.length || a.appliesTo.includes(stateName));
 }
 
-// 잠금 규칙상 이 액션이 지금 실행 가능한지. { ok, reason }.
-// opts.onBranch = 현재 git 브랜치가 이 이슈의 브랜치인지(수동 시작도 "진행 중"으로 인정).
-export async function actionAvailability(action, issue, opts = {}) {
-  const active = await getActiveWork();
-  const inProgress = isActiveIssue(active, issue) || !!opts.onBranch;
-  if (action.lock === "start" && active && active.issueId !== issue.id) {
-    return { ok: false, reason: `${active.identifier} 작업을 먼저 마무리하세요` };
-  }
-  if (action.lock === "end" && !inProgress) {
-    return { ok: false, reason: "이 이슈는 진행 중이 아닙니다" };
-  }
-  return { ok: true, active };
-}
-
 // 액션 실행.
 // opts.confirmFn(action, prompt) → boolean (confirm 이 필요한 액션에서 사용)
-// opts.branch → 사용할 브랜치명(없으면 진행 중 브랜치 또는 이슈 기본값)
-// 반환: { ok } | { cancelled } | { blocked, reason }
+// opts.branch → 사용할 브랜치명(없으면 이슈 기본값)
+// 반환: { ok } | { cancelled }
 export async function runAction(action, issue, config, opts = {}) {
-  const avail = await actionAvailability(action, issue, { onBranch: opts.onBranch });
-  if (!avail.ok) return { blocked: true, reason: avail.reason };
-
-  const branch = opts.branch?.trim() || avail.active?.branch || defaultBranch(issue);
+  const branch = opts.branch?.trim() || defaultBranch(issue);
   const prompt = renderPrompt(action.prompt, { ...issue, branchName: branch });
 
   if (action.confirm && opts.confirmFn) {
@@ -87,13 +69,6 @@ export async function runAction(action, issue, config, opts = {}) {
     } catch {
       /* 상태 변경 실패는 액션 실행을 되돌리지 않는다 */
     }
-  }
-
-  // 작업 잠금 갱신
-  if (action.lock === "start") {
-    await setActiveWork({ issueId: issue.id, identifier: issue.identifier, branch });
-  } else if (action.lock === "end") {
-    await clearActiveWork();
   }
 
   return { ok: true };

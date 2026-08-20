@@ -82,24 +82,6 @@
   white-space: nowrap;
 }
 
-/* 진행 중 작업 배너 */
-.worklock {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--muxy-accent, #5e6ad2);
-  color: #fff;
-  flex: 0 0 auto;
-}
-.worklock .mini {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: transparent;
-  color: #fff;
-}
-
 .content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px; }
 
 .group { margin-bottom: 12px; }
@@ -125,11 +107,6 @@
 }
 .issue:hover { background: var(--muxy-surface-solid, rgba(127, 127, 127, 0.2)); }
 .issue.is-current { border-color: var(--muxy-accent, #5e6ad2); }
-.issue.is-active-work {
-  border-color: var(--muxy-accent, #5e6ad2);
-  background: color-mix(in srgb, var(--muxy-accent, #5e6ad2) 14%, transparent);
-}
-.lock-tag { font-size: 11px; }
 
 .issue-top { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
 /* 접기/펼치기 caret */

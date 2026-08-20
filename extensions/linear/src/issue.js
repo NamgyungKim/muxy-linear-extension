@@ -7,7 +7,6 @@ import { run } from "./fatal.js";
 import { fetchTeamStates, updateIssueState, createComment, fetchIssueDetail, updateIssueDescription } from "./linear.js";
 import { renderMarkdown } from "./markdown.js";
 import { listBaseBranchCandidates, defaultBranch } from "./git.js";
-import { getActiveWork, isActiveIssue } from "./worklock.js";
 import { applicableActions, runAction } from "./actions.js";
 import { setLang, t } from "./i18n.js";
 
@@ -107,16 +106,7 @@ async function main() {
   const showErr = (m) => { errEl.textContent = m; errEl.hidden = !m; };
 
   // 브랜치 기본값
-  const active = await getActiveWork();
-  const branch0 = active?.branch || defaultBranch(issue);
-  $("branch").value = branch0;
-
-  // 현재 git 브랜치가 이 이슈의 브랜치면 "진행 중"으로 인정(수동 시작 대응).
-  let onBranch = false;
-  try {
-    const cur = await muxy.git.currentBranch();
-    onBranch = !!cur && new RegExp(`(^|[^A-Z0-9])${issue.identifier}([^0-9]|$)`, "i").test(cur);
-  } catch { /* 무시 */ }
+  $("branch").value = defaultBranch(issue);
 
   // 베이스 브랜치 후보 채우기
   listBaseBranchCandidates().then((branches) => {
@@ -132,18 +122,6 @@ async function main() {
       sel.append(opt);
     }
   });
-
-  // 잠금 규칙상 이 액션을 못 누르는 이유(없으면 null).
-  function blockedReason(action) {
-    const inProgress = isActiveIssue(active, issue) || onBranch;
-    if (action.lock === "start" && active && active.issueId !== issue.id) {
-      return t("lock.finishFirst", { id: active.identifier });
-    }
-    if (action.lock === "end" && !inProgress) {
-      return t("lock.notInProgress");
-    }
-    return null;
-  }
 
   // 상태별 액션 버튼 렌더
   function renderActions() {
@@ -163,8 +141,6 @@ async function main() {
       const item = h(`<div class="action-item"></div>`);
       const btn = h(`<button class="primary"></button>`);
       btn.textContent = a.icon ? `${a.icon} ${a.label}` : a.label;
-      const reason = blockedReason(a);
-      if (reason) { btn.disabled = true; btn.title = reason; }
       btn.addEventListener("click", () => runModalAction(a));
       const meta = h(`<div class="hint"></div>`);
       meta.textContent = `${runLabel(a.run) ?? a.run}${a.toState ? ` · → ${a.toState}` : ""}`;
@@ -179,13 +155,11 @@ async function main() {
       const res = await runAction(action, issue, config, {
         branch: $("branch").value.trim(),
         base: $("base").value,
-        onBranch,
         confirmFn: (a, prompt) =>
           muxy.dialog
             .confirm({ title: a.label, message: `${a.label}\n\n${prompt}`, buttons: [t("common.run"), t("common.cancel")], cancel: t("common.cancel") })
             .then((c) => c === t("common.run")),
       });
-      if (res.blocked) { showErr(res.reason); return; }
       if (res.cancelled) return;
       changed = true;
       muxy.modal.submitWebview({ changed: true });
