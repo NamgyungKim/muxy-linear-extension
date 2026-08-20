@@ -139,7 +139,12 @@ function initials(name) {
 function stateBadge(state) {
   const badge = el("span", { className: "badge" });
   const dot = el("span", { className: "dot" });
-  if (state?.color) dot.style.color = state.color;
+  // 상태 색상을 배지 전체(테두리·배경·텍스트)에 입혀 한눈에 구분되게 한다.
+  if (state?.color) {
+    dot.style.color = state.color;
+    badge.style.setProperty("--state-color", state.color);
+    badge.classList.add("badge--state");
+  }
   badge.append(dot, document.createTextNode(state?.name ?? "—"));
   return badge;
 }

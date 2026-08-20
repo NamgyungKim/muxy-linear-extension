@@ -95,6 +95,14 @@ label { display: block; }
   border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.3));
   white-space: nowrap;
 }
+/* 상태 색상을 테두리·배경·텍스트에 반영해 태그가 또렷하게 보이도록 한다. */
+.badge--state {
+  border-color: color-mix(in srgb, var(--state-color) 55%, transparent);
+  background: color-mix(in srgb, var(--state-color) 16%, transparent);
+  color: color-mix(in srgb, var(--state-color) 78%, var(--muxy-foreground, #e6e6e6));
+  font-weight: 600;
+}
+.badge--state .dot { width: 9px; height: 9px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
 
 .muted { opacity: 0.6; }
