@@ -112,7 +112,7 @@ function el(tag, props = {}, children = []) {
 
 // 새 액션 기본 골격
 function blankAction() {
-  return { id: `a${Date.now()}`, label: t("ae.newAction"), icon: "", appliesTo: [], run: "current", base: "", prompt: "", toState: "", lock: "none", confirm: false };
+  return { id: `a${Date.now()}`, label: t("ae.newAction"), icon: "", appliesTo: [], run: "current", base: "", prompt: "", toState: "", confirm: false, mode: "", model: "" };
 }
 
 // "표시할 상태" 컨트롤: 단일 select(모든 상태 / 특정 상태). 상태를 못 불러오면 텍스트 폴백.
@@ -360,6 +360,26 @@ function actionCard(action, index) {
   run.addEventListener("change", () => { action.run = run.value; });
   card.append(field(t("ae.runMode"), run));
 
+  // mode — Claude 권한 모드(claude 에이전트에서만 의미 있음). ""=기본.
+  const mode = el("select");
+  for (const [v, txt] of [["", t("ae.modeDefault")], ["plan", t("ae.modePlan")], ["acceptEdits", t("ae.modeAcceptEdits")], ["bypassPermissions", t("ae.modeBypass")]]) {
+    const o = el("option", { value: v }, txt);
+    if ((action.mode || "") === v) o.selected = true;
+    mode.append(o);
+  }
+  mode.addEventListener("change", () => { action.mode = mode.value; });
+  card.append(field(t("ae.agentMode"), mode, t("ae.agentModeHelp")));
+
+  // model — Claude 모델. ""=기본.
+  const model = el("select");
+  for (const [v, txt] of [["", t("ae.modelDefault")], ["opus", "Opus"], ["sonnet", "Sonnet"], ["haiku", "Haiku"]]) {
+    const o = el("option", { value: v }, txt);
+    if ((action.model || "") === v) o.selected = true;
+    model.append(o);
+  }
+  model.addEventListener("change", () => { action.model = model.value; });
+  card.append(field(t("ae.agentModel"), model, t("ae.agentModelHelp")));
+
   // base
   card.append(field(t("issue.baseBranch"), baseControl(action), t("ae.baseHelp")));
 
@@ -382,16 +402,6 @@ function actionCard(action, index) {
 
   // toState — 상태 드롭다운(상태를 못 불러오면 텍스트 입력으로 폴백)
   card.append(field(t("ae.toState"), toStateControl(action), t("ae.toStateHelp")));
-
-  // lock
-  const lock = el("select");
-  for (const [v, txt] of [["none", t("ae.lockNone")], ["start", t("ae.lockStart")], ["end", t("ae.lockEnd")]]) {
-    const o = el("option", { value: v }, txt);
-    if ((action.lock || "none") === v) o.selected = true;
-    lock.append(o);
-  }
-  lock.addEventListener("change", () => { action.lock = lock.value; });
-  card.append(field(t("ae.lock"), lock, t("ae.lockHelp")));
 
   // confirm
   const confirmWrap = el("label", { className: "checkbox field" });

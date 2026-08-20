@@ -128,10 +128,12 @@ export async function listBaseBranchCandidates() {
 // 작업 시작: 브랜치/worktree 생성 후 터미널 탭에서 에이전트 실행.
 // opts: { issue, config, branch, baseBranch, useWorktree, prompt }
 // 반환: 실행한 터미널 command 문자열(로그/토스트용).
-export async function startWork({ issue, config, branch, baseBranch, useWorktree, prompt }) {
+export async function startWork({ issue, config, branch, baseBranch, useWorktree, prompt, agentArgs }) {
   const muxy = window.muxy;
   // 명령은 프롬프트 내용과 무관하게 항상 동일(shellExact 재사용). 실제 프롬프트는 파일로 넘긴다.
-  const command = `${config.agent_command} "$(cat ${START_PROMPT_PATH})"`;
+  // agentArgs(권한 모드/모델 플래그)는 에이전트 명령과 프롬프트 인자 사이에 끼운다.
+  const agent = agentArgs ? `${config.agent_command} ${agentArgs}` : config.agent_command;
+  const command = `${agent} "$(cat ${START_PROMPT_PATH})"`;
   // 브랜치/worktree 전환 후 실제 실행 디렉터리에 프롬프트 파일을 쓰고 터미널을 연다.
   const launch = async () => {
     await writeStartPrompt(prompt);
@@ -216,8 +218,9 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
 // 작업 종료: 현재 활성 worktree/브랜치에서 종료 프롬프트로 에이전트를 실행한다.
 // (브랜치/worktree 를 새로 만들지 않는다 — 지금 작업 중인 곳에서 마무리 절차를 돌린다.)
 // opts: { config, prompt }
-export async function finishWork({ config, prompt }) {
-  const command = `${config.agent_command} ${shq(prompt)}`;
+export async function finishWork({ config, prompt, agentArgs }) {
+  const agent = agentArgs ? `${config.agent_command} ${agentArgs}` : config.agent_command;
+  const command = `${agent} ${shq(prompt)}`;
   await openOrReuseTerminal(command);
   return command;
 }

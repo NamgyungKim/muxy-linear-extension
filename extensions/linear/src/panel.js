@@ -8,7 +8,6 @@ import { installFatalHandler } from "./fatal.js";
 import { loadConfig, effectiveToken, applyProjectSettings } from "./config.js";
 import { fetchMyIssues, fetchProjectIssues, fetchIssueById } from "./linear.js";
 import { readProjectConfig } from "./project.js";
-import { getActiveWork, clearActiveWork, isActiveIssue } from "./worklock.js";
 import { applicableActions, runAction, mergeActions } from "./actions.js";
 import { setLang, t } from "./i18n.js";
 
@@ -27,7 +26,6 @@ let displayCfg = {}; // 목록 표시 옵션(config 의 list_* 값)
 let allIssues = []; // 마지막으로 가져온 이슈 전체(상태 필터는 클라이언트에서 적용)
 let stateFilter = ""; // 선택된 상태 이름("" = 전체)
 let searchQuery = ""; // 이슈 검색어(번호/제목)
-let activeWork = null; // 진행 중인 작업 { issueId, identifier, branch } 또는 null
 const collapsed = new Set(); // 접힌 부모 이슈 id 집합(자식 숨김)
 
 // 우선순위 라벨(Linear: 0 없음, 1 긴급, 2 높음, 3 보통, 4 낮음). 언어에 따라 실행 시 조회.
@@ -91,8 +89,6 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
   const row = el("button", { className: "issue" });
   if (issue.identifier === currentIssueId) row.classList.add("is-current");
   if (indent) row.classList.add("is-child");
-  const active = isActiveIssue(activeWork, issue); // 이 이슈가 진행 중인가
-  if (active) row.classList.add("is-active-work");
 
   // 부모 이슈가 있으면 상단에 브레드크럼 표시.
   if (displayCfg.list_show_parent && issue.parent) {
@@ -120,9 +116,6 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
     if (!name) av.classList.add("is-empty");
     top.append(av);
   }
-  // 진행 중 표시(작은 자물쇠)
-  if (active) top.append(el("span", { className: "lock-tag", title: t("panel.inProgressTitle") }, "🔒"));
-
   // 현재 상태에 해당하는 액션 버튼들.
   // API 키와 에이전트가 모두 설정돼 있어야 액션을 쓸 수 있으므로, 없으면 버튼 자체를 숨긴다.
   const actionsReady = !!displayCfg.api_token && !!displayCfg.agent_command;
@@ -130,8 +123,6 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
     const acts = el("span", { className: "issue-acts" });
     for (const a of applicableActions(displayCfg.actions, issue)) {
       const b = el("button", { className: "row-btn", title: a.label }, a.icon ? `${a.icon} ${a.label}` : a.label);
-      const reason = actionBlockedReason(a, issue);
-      if (reason) { b.disabled = true; b.title = reason; }
       b.addEventListener("click", (e) => { e.stopPropagation(); runRowAction(a, issue); });
       acts.append(b);
     }
@@ -143,27 +134,11 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
   return row;
 }
 
-// 잠금 규칙상 이 액션을 지금 못 누르는 이유(없으면 null).
-// 현재 git 브랜치가 이 이슈의 브랜치면(currentIssueId 일치) "진행 중"으로 인정한다.
-function actionBlockedReason(action, issue) {
-  const onBranch = !!currentIssueId && issue.identifier === currentIssueId;
-  const inProgress = isActiveIssue(activeWork, issue) || onBranch;
-  if (action.lock === "start" && activeWork && activeWork.issueId !== issue.id) {
-    return t("lock.finishFirst", { id: activeWork.identifier });
-  }
-  if (action.lock === "end" && !inProgress) {
-    return t("lock.notInProgress");
-  }
-  return null;
-}
-
 // 행에서 액션 실행.
 async function runRowAction(action, issue) {
   const config = await loadConfig();
-  const onBranch = !!currentIssueId && issue.identifier === currentIssueId;
   try {
     const res = await runAction(action, issue, config, {
-      onBranch,
       confirmFn: (a, prompt) =>
         muxy.dialog
           .confirm({
@@ -174,7 +149,6 @@ async function runRowAction(action, issue) {
           })
           .then((c) => c === t("common.run")),
     });
-    if (res.blocked) { muxy.toast?.({ title: t("panel.cannotRun"), body: res.reason }); return; }
     if (res.cancelled) return;
     muxy.toast?.({ title: action.label, body: issue.identifier });
     render();
@@ -185,33 +159,6 @@ async function runRowAction(action, issue) {
     // 토스트는 사라지므로 패널 상단에 오류를 남긴다(다음 새로고침 때까지).
     content.prepend(el("div", { className: "empty error", style: "text-align:left" }, t("panel.actionFailedInline", { label: action.label, msg })));
   }
-}
-
-// 진행 중 배너: 무엇이 잠겨 있는지 + 수동 해제.
-function renderWorklock() {
-  const bar = document.getElementById("worklock");
-  if (!activeWork) {
-    bar.hidden = true;
-    bar.innerHTML = "";
-    return;
-  }
-  bar.hidden = false;
-  bar.innerHTML = "";
-  bar.append(el("span", { className: "wl-text" }, t("worklock.banner", { id: activeWork.identifier })));
-  bar.append(el("span", { className: "spacer" }));
-  const unlock = el("button", { className: "mini", title: t("worklock.unlockTitle") }, t("worklock.unlock"));
-  unlock.addEventListener("click", async () => {
-    const choice = await muxy.dialog.confirm({
-      title: t("worklock.unlock"),
-      message: t("worklock.unlockConfirm", { id: activeWork.identifier }),
-      buttons: [t("worklock.unlockYes"), t("common.cancel")],
-      cancel: t("common.cancel"),
-    });
-    if (choice !== t("worklock.unlockYes")) return;
-    await clearActiveWork();
-    render();
-  });
-  bar.append(unlock);
 }
 
 // 한 그룹 안에서 부모 → 자식 순으로 정렬(자식은 들여쓰기). 그룹에 부모가 없으면
@@ -416,14 +363,12 @@ async function render(opts = {}) {
     const token = effectiveToken(config, projectCfg); // 프로젝트 전용 키 우선
     // 실효 설정: 프로젝트 핵심 실행값 오버라이드 + 액션 병합 + 실효 토큰(모달에도 이 토큰을 넘긴다).
     displayCfg = { ...applyProjectSettings(config, projectCfg), actions: mergeActions(config.actions, projectCfg?.actions) };
-    activeWork = await getActiveWork();
     await refreshCurrentBranch();
 
     // 프로젝트가 Linear에 연결(.linear.json)되지 않았으면 리스트를 숨기고 연결 안내.
     if (!projectCfg) {
       subbar.hidden = true;
       if (searchbar) searchbar.hidden = true;
-      renderWorklock();
       content.innerHTML = "";
       const box = el("div", { className: "empty" }, [
         el("p", {}, t("panel.notLinkedTitle")),
@@ -438,7 +383,6 @@ async function render(opts = {}) {
     if (!token) {
       subbar.hidden = true;
       if (searchbar) searchbar.hidden = true;
-      renderWorklock();
       content.innerHTML = "";
       const box = el("div", { className: "empty" }, [
         el("p", {}, t("panel.needKeyTitle")),
@@ -451,7 +395,6 @@ async function render(opts = {}) {
     if (searchbar) searchbar.hidden = false;
 
     renderSubbar();
-    renderWorklock();
 
     const projectFiltered = !!projectCfg?.projectId;
     const useProjectAll = projectFiltered && who === "all";
