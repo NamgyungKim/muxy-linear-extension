@@ -3,7 +3,7 @@
 import "./theme.css";
 import "./modal.css";
 import { run } from "./fatal.js";
-import { loadConfig, saveConfig, CONFIG_DEFAULTS, effectiveToken } from "./config.js";
+import { loadConfig, saveConfig, effectiveToken } from "./config.js";
 import { fetchAllStates } from "./linear.js";
 import { readProjectConfig, writeProjectConfig } from "./project.js";
 import { EMOJI, EMOJI_GROUPS, GROUP_LABELS } from "./emoji.js";
@@ -470,7 +470,6 @@ async function main() {
       <select id="import-global" style="width:auto;display:none"><option value="">${t("ae.overrideGlobal")}</option></select>
       <span class="spacer"></span>
       <button id="revert" class="mini" hidden>${t("ae.revertGlobal")}</button>
-      <button id="reset" class="mini">${t("ae.restoreDefaults")}</button>
     </div>
     <p id="err" class="error" hidden></p>
     <div class="actions">
@@ -517,11 +516,6 @@ async function main() {
   });
 
   document.getElementById("add").addEventListener("click", () => { actions.push(blankAction()); renderList(); });
-  document.getElementById("reset").addEventListener("click", () => {
-    // 글로벌: 내장 기본값 / 프로젝트: 비움(글로벌만 적용).
-    actions = clone(scope === "project" ? [] : CONFIG_DEFAULTS.actions);
-    renderList();
-  });
 
   // "글로벌 액션 재정의" 선택 목록(프로젝트 스코프에서 특정 글로벌 액션을 복사해 재정의).
   const importSel = document.getElementById("import-global");
