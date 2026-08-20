@@ -330,9 +330,9 @@ async function main() {
     }
   });
 
-  // Linear에서 열기(브라우저)
+  // Linear에서 열기(Muxy 내장 브라우저)
   $("open-web").addEventListener("click", () => {
-    muxy.exec(["open", issue.url]).catch((e) => showErr(e.message));
+    Promise.resolve(muxy.browser.open(issue.url)).catch((e) => showErr(e.message));
   });
 
   // 코멘트 추가
