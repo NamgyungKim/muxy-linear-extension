@@ -16,6 +16,10 @@ const muxy = window.muxy;
 const content = document.getElementById("content");
 const subbar = document.getElementById("subbar");
 const linkedEl = document.getElementById("linked");
+const spinnerEl = document.getElementById("topbar-spinner");
+
+// 로딩 표시: 목록을 0으로 비우지 않고 상단바 동그라미만 켠다/끈다.
+function setLoading(on) { if (spinnerEl) spinnerEl.hidden = !on; }
 
 // 예상치 못한 오류를 content 영역에 드러낸다.
 installFatalHandler("content");
@@ -476,8 +480,10 @@ function startPolling() {
 async function render() {
   busy = true;
   listReady = false;
-  content.innerHTML = "";
-  content.append(el("div", { className: "loading muted" }, t("common.loading")));
+  // 기존 목록을 비우지 않는다(깜빡임 방지). 로딩 중임은 상단바 스피너로만 표시하고,
+  // 새 데이터가 준비되면 renderList()가 그 자리에서 교체한다. 첫 로드라 목록이 비어
+  // 있으면 스피너만 잠깐 보인다.
+  setLoading(true);
 
   const config = await loadConfig();
   setLang(config.language);
@@ -542,6 +548,7 @@ async function render() {
     content.append(errorBox(err));
   } finally {
     busy = false;
+    setLoading(false);
   }
 }
 

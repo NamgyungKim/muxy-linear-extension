@@ -25,6 +25,19 @@
   padding: 3px 8px;
 }
 
+/* 상단바 로딩 표시: 목록을 비우지 않고 이 동그라미만 돌린다. */
+.topbar-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--muxy-foreground, #ddd) 28%, transparent);
+  border-top-color: var(--muxy-accent, #5e6ad2);
+  animation: linear-topbar-spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+.topbar-spinner[hidden] { display: none; }
+@keyframes linear-topbar-spin { to { transform: rotate(360deg); } }
+
 /* 설정 톱니 아이콘만 더 크게 */
 #settings { font-size: 18px; }
 
