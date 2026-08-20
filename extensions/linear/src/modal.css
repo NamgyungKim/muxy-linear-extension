@@ -41,6 +41,20 @@ body.modal {
 .action-item > button { flex: 0 0 auto; }
 .action-item .hint { margin: 0; }
 
+/* 액션 실행 중 버튼에 붙는 로딩 스피너("작업 중…" 표기) */
+.action-item button.running { display: inline-flex; align-items: center; }
+.action-spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 7px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-top-color: currentColor;
+  animation: linear-action-spin 0.7s linear infinite;
+}
+@keyframes linear-action-spin { to { transform: rotate(360deg); } }
+
 /* 글로벌/프로젝트 스코프 배너 */
 .scope-banner {
   display: flex;

@@ -143,6 +143,8 @@ const DICT = {
     "issue.bodySaveFail": "Failed to save description: {msg}",
     "issue.previewEmpty": "_(empty)_",
     "issue.commentAdded": "Comment added",
+    "issue.actionRunning": "Running…",
+    "issue.actionStarted": "Action started",
 
     // ── actions editor ──
     "ae.emojiSearch": "Search emoji…",
@@ -421,6 +423,8 @@ const DICT = {
     "issue.bodySaveFail": "본문 저장 실패: {msg}",
     "issue.previewEmpty": "_(내용 없음)_",
     "issue.commentAdded": "코멘트 추가됨",
+    "issue.actionRunning": "작업 중…",
+    "issue.actionStarted": "작업을 시작했습니다",
 
     "ae.emojiSearch": "이모지 검색…",
     "ae.remove": "제거",
@@ -697,6 +701,8 @@ const DICT = {
     "issue.bodySaveFail": "本文の保存に失敗: {msg}",
     "issue.previewEmpty": "_(内容なし)_",
     "issue.commentAdded": "コメントを追加しました",
+    "issue.actionRunning": "実行中…",
+    "issue.actionStarted": "アクションを開始しました",
 
     "ae.emojiSearch": "絵文字を検索…",
     "ae.remove": "削除",
@@ -973,6 +979,8 @@ const DICT = {
     "issue.bodySaveFail": "正文保存失败：{msg}",
     "issue.previewEmpty": "_(无内容)_",
     "issue.commentAdded": "评论已添加",
+    "issue.actionRunning": "执行中…",
+    "issue.actionStarted": "已开始操作",
 
     "ae.emojiSearch": "搜索表情…",
     "ae.remove": "移除",

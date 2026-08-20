@@ -58,18 +58,23 @@ export async function runAction(action, issue, config, opts = {}) {
     await finishWork({ config, prompt });
   }
 
-  // 실행 후 상태 변경(상태 이름 또는 타입으로 매칭)
+  // 실행 후 상태 변경(상태 이름 또는 타입으로 매칭).
+  // 성공 시 적용된 상태를 반환해, 호출부가 UI(상태 드롭다운/액션 목록)에 반영할 수 있게 한다.
+  let appliedState = null;
   if (action.toState) {
     try {
       const states = await fetchTeamStates(config.api_token, issue.team.id);
       const target =
         states.find((s) => s.name === action.toState) ||
         states.find((s) => s.type === action.toState);
-      if (target) await updateIssueState(config.api_token, issue.id, target.id);
+      if (target) {
+        await updateIssueState(config.api_token, issue.id, target.id);
+        appliedState = { id: target.id, name: target.name };
+      }
     } catch {
       /* 상태 변경 실패는 액션 실행을 되돌리지 않는다 */
     }
   }
 
-  return { ok: true };
+  return { ok: true, appliedState };
 }
