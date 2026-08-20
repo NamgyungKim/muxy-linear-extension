@@ -234,6 +234,12 @@ async function main() {
       <label class="checkbox field"><input type="checkbox" id="list_show_actions" ${config.list_show_actions ? "checked" : ""} /> ${t("set.showActions")}</label>
       <label class="checkbox field"><input type="checkbox" id="show_branch_bar" ${config.show_branch_bar ? "checked" : ""} /> ${t("set.showBranchBar")}</label>
 
+      <div class="field" style="margin-top:10px">
+        <span class="label">${t("set.autoRefresh")}</span>
+        <input type="number" id="auto_refresh_seconds" min="0" step="5" value="${Number(config.auto_refresh_seconds) || 0}" />
+        <div class="hint">${t("set.autoRefreshHint")}</div>
+      </div>
+
       <hr class="sep" />
       <h3 class="sec-title">${t("set.actions")}</h3>
       <p class="hint" style="margin-top:0">${t("set.actionsHint")}</p>
@@ -553,6 +559,7 @@ async function main() {
       list_show_parent: checked("list_show_parent"),
       list_show_actions: checked("list_show_actions"),
       show_branch_bar: checked("show_branch_bar"),
+      auto_refresh_seconds: Math.max(0, Math.floor(Number(val("auto_refresh_seconds")) || 0)),
     });
     muxy.toast?.({ title: t("set.savedGlobal") });
     muxy.modal.submitWebview({ saved: true });
