@@ -1,6 +1,7 @@
 // "작업 시작" 흐름의 git/터미널 로직. 이슈 상세 모달에서 사용한다.
 
 import { renderPrompt } from "./config.js";
+import { readProjectConfig, writeProjectConfig } from "./project.js";
 
 // 쉘 단일 인용 이스케이프.
 function shq(s) {
@@ -42,6 +43,22 @@ async function ensureGitignore() {
 async function writeStartPrompt(prompt) {
   await ensurePromptDir();
   await window.muxy.files.write(START_PROMPT_PATH, String(prompt ?? ""));
+}
+
+// 프로젝트 연결(.linear.json)을 새 worktree 로 전파한다.
+// muxy.files 는 활성 worktree 루트 기준이라, worktree 를 새로 만들어 그리로 전환하면
+// 그 디렉터리엔 .linear.json 이 없어 프로젝트 링크/토큰 오버라이드가 사라진 것처럼 보인다.
+// (KNK-67) worktree 전환 직후, 전환 전에 읽어 둔 설정을 그 worktree 에 한 번 써 준다.
+// 이미 그 worktree 에 설정이 있으면(재사용 등) 손대지 않는다.
+async function ensureProjectConfigInWorktree(savedCfg) {
+  if (!savedCfg) return; // 원래 연결이 없었으면 전파할 것도 없다.
+  try {
+    const existing = await readProjectConfig();
+    if (existing) return; // 이 worktree 에 이미 설정이 있으면 덮어쓰지 않는다.
+    await writeProjectConfig(savedCfg);
+  } catch {
+    // 전파 실패는 작업 시작을 막지 않는다(설정은 원래 위치에 그대로 있다).
+  }
 }
 
 // 브랜치명을 디렉토리 슬러그로 변환.
@@ -130,6 +147,9 @@ export async function listBaseBranchCandidates() {
 // 반환: 실행한 터미널 command 문자열(로그/토스트용).
 export async function startWork({ issue, config, branch, baseBranch, useWorktree, prompt }) {
   const muxy = window.muxy;
+  // worktree 로 전환하기 전에 현재 활성 루트의 프로젝트 연결(.linear.json)을 읽어 둔다.
+  // 전환 후 새 worktree 에 이 설정을 전파해 "설정이 사라지는" 문제를 막는다(KNK-67).
+  const savedProjectCfg = await readProjectConfig();
   // 명령은 프롬프트 내용과 무관하게 항상 동일(shellExact 재사용). 실제 프롬프트는 파일로 넘긴다.
   const command = `${config.agent_command} "$(cat ${START_PROMPT_PATH})"`;
   // 브랜치/worktree 전환 후 실제 실행 디렉터리에 프롬프트 파일을 쓰고 터미널을 연다.
@@ -189,6 +209,8 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
       }
       await muxy.git.worktree.switchTo({ identifier: branch });
     }
+    // 전환된 worktree 에 프로젝트 연결을 전파한다(없을 때만).
+    await ensureProjectConfigInWorktree(savedProjectCfg);
     await launch();
   } else {
     if (branchExists) {
