@@ -30,6 +30,15 @@ let searchQuery = ""; // 이슈 검색어(번호/제목)
 let activeWork = null; // 진행 중인 작업 { issueId, identifier, branch } 또는 null
 const collapsed = new Set(); // 접힌 부모 이슈 id 집합(자식 숨김)
 
+// 자동 새로고침(폴링) 상태. 최소 1초 간격으로 신규 데이터를 가져오되, 실제로 바뀐
+// 경우에만 목록 DOM 을 다시 그린다 → 리스트가 0으로 비었다가 다시 나오는 깜빡임 제거.
+const POLL_MS = 1000; // 폴링 간격(요구사항: 아무리 빨라도 1초에 한 번)
+let pollTimer = null; // setInterval 핸들
+let currentToken = null; // 마지막으로 사용한 실효 토큰(폴링에서 재사용)
+let listReady = false; // 리스트가 실제로 표시된 상태인가(연결+키 OK)
+let lastSignature = null; // 마지막으로 그린 데이터의 시그니처(변경 감지용)
+let busy = false; // render/폴링 동시 실행 방지 가드
+
 // 우선순위 라벨(Linear: 0 없음, 1 긴급, 2 높음, 3 보통, 4 낮음). 언어에 따라 실행 시 조회.
 const priorityLabel = (p) => ({ 1: t("priority.urgent"), 2: t("priority.high"), 3: t("priority.normal"), 4: t("priority.low") }[p]);
 
@@ -356,6 +365,8 @@ function populateStateFilter() {
 
 // allIssues 를 stateFilter 로 걸러 상태별 그룹으로 그린다(네트워크 재요청 없음).
 function renderList() {
+  // 폴링 갱신 시 스크롤이 튀지 않도록 위치를 보존한다.
+  const prevScroll = content.scrollTop;
   content.innerHTML = "";
   const showProject = !projectCfg?.projectId;
   let filtered = stateFilter ? allIssues.filter((i) => i.state?.name === stateFilter) : allIssues;
@@ -393,9 +404,75 @@ function renderList() {
   for (const g of sortedGroups) {
     content.append(section(g.name, g.issues, { showProject, color: g.color }));
   }
+  content.scrollTop = prevScroll; // 재그리기 후 스크롤 위치 복원
+}
+
+// 현재 뷰(who/projectCfg) 기준으로 이슈 목록만 가져온다. render 와 폴링이 공유.
+async function fetchIssueList(token, config) {
+  const useProjectAll = !!projectCfg?.projectId && who === "all";
+  if (useProjectAll) {
+    return fetchProjectIssues(token, { projectId: projectCfg.projectId, activeOnly: false });
+  }
+  return fetchMyIssues(token, {
+    teamKey: projectCfg?.teamKey || config.team_key,
+    projectId: projectCfg?.projectId || "",
+    activeOnly: false,
+  });
+}
+
+// 렌더 결과에 영향을 주는 값만 뽑아 시그니처를 만든다. 값이 같으면 DOM 을 건드리지 않는다.
+function issuesSignature(issues) {
+  return JSON.stringify({
+    cur: currentIssueId,
+    work: activeWork?.issueId || null,
+    items: issues.map((i) => [
+      i.identifier, i.state?.name, i.state?.color, i.title, i.priority,
+      i.assignee?.displayName || i.assignee?.name || "",
+      i.parent?.identifier || "", i.projectMilestone?.name || "", i.project?.name || "",
+    ]),
+  });
+}
+
+// 폴링용 경량 새로고침: 스피너 없이 조용히 데이터를 가져와 바뀐 경우에만 다시 그린다.
+// 연결/키 상태 등 구조가 바뀌는 변경은 여기서 다루지 않고 render() 가 담당한다.
+async function pollTick() {
+  if (busy || !listReady || !currentToken || document.hidden) return;
+  busy = true;
+  try {
+    const config = await loadConfig();
+    activeWork = await getActiveWork();
+    await refreshCurrentBranch();
+    const { issues } = await fetchIssueList(currentToken, config);
+    const sig = issuesSignature(issues);
+    if (sig === lastSignature) return; // 변경 없음 → DOM 유지(스크롤/포커스 보존)
+    lastSignature = sig;
+    allIssues = issues;
+    renderWorklock();
+    populateStateFilter();
+    renderList(); // 스크롤 위치를 보존한 채 목록만 교체
+  } catch (e) {
+    // 폴링 실패는 조용히 무시하고 기존 목록을 유지한다(콘솔에만 기록).
+    console.warn("[linear] auto-refresh 실패:", e?.message || e);
+  } finally {
+    busy = false;
+  }
+}
+
+// 리스트가 이미 떠 있으면 깜빡임 없는 경량 갱신, 아니면 전체 렌더(안내 화면 등).
+function refreshSmart() {
+  if (listReady) pollTick();
+  else render();
+}
+
+// 1초 간격 폴링 시작(중복 방지). pollTick 이 busy/listReady/hidden 을 스스로 가드한다.
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollTick, POLL_MS);
 }
 
 async function render() {
+  busy = true;
+  listReady = false;
   content.innerHTML = "";
   content.append(el("div", { className: "loading muted" }, t("common.loading")));
 
@@ -446,30 +523,22 @@ async function render() {
     renderSubbar();
     renderWorklock();
 
-    const projectFiltered = !!projectCfg?.projectId;
-    const useProjectAll = projectFiltered && who === "all";
     // 상태 필터를 클라이언트에서 걸 수 있도록 모든 상태의 이슈를 가져온다.
-    let issues;
-    if (useProjectAll) {
-      ({ issues } = await fetchProjectIssues(token, {
-        projectId: projectCfg.projectId,
-        activeOnly: false,
-      }));
-    } else {
-      ({ issues } = await fetchMyIssues(token, {
-        teamKey: projectCfg?.teamKey || config.team_key,
-        projectId: projectCfg?.projectId || "",
-        activeOnly: false,
-      }));
-    }
+    const { issues } = await fetchIssueList(token, config);
     allIssues = issues;
-    console.log(`[linear] path=${useProjectAll ? "projectAll" : "mine"} who=${who} count=${issues.length}`);
+    console.log(`[linear] who=${who} count=${issues.length}`);
 
     populateStateFilter();
     renderList();
+    // 폴링에서 재사용할 토큰/시그니처 기록 + 리스트 표시 상태 on.
+    currentToken = token;
+    listReady = true;
+    lastSignature = issuesSignature(issues);
   } catch (err) {
     content.innerHTML = "";
     content.append(errorBox(err));
+  } finally {
+    busy = false;
   }
 }
 
@@ -618,25 +687,29 @@ searchEl.addEventListener("keydown", (e) => {
 // 연결된 프로젝트에서 "내 이슈 / 프로젝트 전체" 는 쿼리가 달라 재요청.
 bindSeg("who", (d) => { who = d.who; });
 
-document.getElementById("refresh").addEventListener("click", render);
+// 수동 새로고침: 리스트가 떠 있으면 깜빡임 없는 경량 갱신, 아니면 전체 렌더.
+document.getElementById("refresh").addEventListener("click", refreshSmart);
 document.getElementById("new").addEventListener("click", openCreate);
 document.getElementById("settings").addEventListener("click", openSettings);
 
 // 프로젝트/브랜치 전환 시 현재 브랜치 강조 + 연결 정보 갱신.
 // 구독 실패(권한 등)가 최초 렌더링을 막지 않도록 방어한다.
-function safeSubscribe(name) {
+function safeSubscribe(name, handler) {
   try {
-    muxy.events.subscribe(name, render);
+    muxy.events.subscribe(name, handler);
   } catch (e) {
     console.warn(`events.subscribe(${name}) 실패:`, e.message);
   }
 }
-safeSubscribe("worktree.headChanged");
-safeSubscribe("project.switched");
+// 브랜치 변경은 목록 구조가 그대로라 경량 갱신으로 충분(현재 브랜치 강조만 반영).
+safeSubscribe("worktree.headChanged", refreshSmart);
+// 프로젝트 전환은 연결 대상 자체가 바뀌므로 전체 렌더로 다시 구성한다.
+safeSubscribe("project.switched", render);
 
 // 패널이 다시 활성화(포커스)될 때 자동 새로고침 — 터미널/Linear 웹 등 외부 변경 반영.
 try {
-  muxy.onFocus?.((focused) => { if (focused) render(); });
+  muxy.onFocus?.((focused) => { if (focused) refreshSmart(); });
 } catch { /* onFocus 없으면 무시 */ }
 
 render();
+startPolling(); // 최소 1초 간격으로 신규 데이터를 지속적으로 가져온다.
