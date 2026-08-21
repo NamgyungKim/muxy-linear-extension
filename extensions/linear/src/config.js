@@ -35,6 +35,7 @@ export const CONFIG_DEFAULTS = {
   // 목록 각 행에 무엇을 표시할지(설정에서 토글).
   list_show_state: true, // 상태 배지
   list_show_priority: false, // 우선순위
+  list_show_labels: true, // 라벨 칩
   list_show_project: true, // 프로젝트 칩(여러 프로젝트가 섞일 때만)
   list_show_milestone: true, // 마일스톤 칩
   list_show_assignee: true, // 담당자 아바타

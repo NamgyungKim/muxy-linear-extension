@@ -221,6 +221,7 @@ async function main() {
       <h3 class="sec-title">${t("set.listShow")}</h3>
       <label class="checkbox field"><input type="checkbox" id="list_show_state" ${config.list_show_state ? "checked" : ""} /> ${t("set.showState")}</label>
       <label class="checkbox field"><input type="checkbox" id="list_show_priority" ${config.list_show_priority ? "checked" : ""} /> ${t("set.showPriority")}</label>
+      <label class="checkbox field"><input type="checkbox" id="list_show_labels" ${config.list_show_labels ? "checked" : ""} /> ${t("set.showLabels")}</label>
       <label class="checkbox field"><input type="checkbox" id="list_show_project" ${config.list_show_project ? "checked" : ""} /> ${t("set.showProject")}</label>
       <label class="checkbox field"><input type="checkbox" id="list_show_milestone" ${config.list_show_milestone ? "checked" : ""} /> ${t("set.showMilestone")}</label>
       <label class="checkbox field"><input type="checkbox" id="list_show_assignee" ${config.list_show_assignee ? "checked" : ""} /> ${t("set.showAssignee")}</label>
@@ -535,6 +536,7 @@ async function main() {
       agent_command: val("agent_command") || "claude",
       list_show_state: checked("list_show_state"),
       list_show_priority: checked("list_show_priority"),
+      list_show_labels: checked("list_show_labels"),
       list_show_project: checked("list_show_project"),
       list_show_milestone: checked("list_show_milestone"),
       list_show_assignee: checked("list_show_assignee"),
