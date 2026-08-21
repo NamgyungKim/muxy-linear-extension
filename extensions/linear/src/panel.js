@@ -808,7 +808,7 @@ async function openSettings() {
 }
 
 async function openCreate() {
-  const result = await muxy.modal.openWebview({ entry: "modals/create.html", width: 460, height: 420 });
+  const result = await muxy.modal.openWebview({ entry: "modals/create.html", width: 460, height: 640 });
   if (result?.created) render();
 }
 
