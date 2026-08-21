@@ -225,6 +225,28 @@
   white-space: nowrap;
   max-width: 45%;
 }
+/* 라벨 칩 */
+.issue-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.3));
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+.issue-label .label-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muxy-foreground, #888);
+}
 /* 프로젝트 칩 */
 .issue-project {
   font-size: 10px;

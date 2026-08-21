@@ -76,6 +76,7 @@ const ISSUE_FIELDS = `
   team { id key name }
   project { id name }
   projectMilestone { id name }
+  labels(first: 10) { nodes { id name color } }
   assignee { id name displayName avatarUrl }
   parent { id identifier title }`;
 

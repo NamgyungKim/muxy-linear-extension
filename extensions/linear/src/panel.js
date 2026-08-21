@@ -211,6 +211,16 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
   if (displayCfg.list_show_milestone && issue.projectMilestone?.name) {
     top.append(el("span", { className: "issue-milestone", title: t("panel.milestoneTitle") }, `◆ ${issue.projectMilestone.name}`));
   }
+  // 라벨 칩(라벨 고유 색상으로 점 표시).
+  if (displayCfg.list_show_labels) {
+    for (const lbl of issue.labels?.nodes ?? []) {
+      const chip = el("span", { className: "issue-label", title: lbl.name });
+      const dot = el("span", { className: "label-dot" });
+      if (lbl.color) dot.style.background = lbl.color;
+      chip.append(dot, document.createTextNode(lbl.name));
+      top.append(chip);
+    }
+  }
   // 담당자 아바타.
   if (displayCfg.list_show_assignee) {
     const name = issue.assignee?.displayName || issue.assignee?.name;
