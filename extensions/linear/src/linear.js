@@ -179,6 +179,10 @@ export async function fetchIssueDetail(token, issueId) {
         title
         description
         url
+        priority
+        assignee { id name displayName }
+        project { id name }
+        labels { nodes { id name color } }
         comments(first: 100) {
           nodes {
             id
@@ -246,6 +250,16 @@ export async function updateIssueDescription(token, issueId, description) {
   return data.issueUpdate?.success === true;
 }
 
+// 이슈 제목 변경.
+export async function updateIssueTitle(token, issueId, title) {
+  const query = `
+    mutation UpdateTitle($id: String!, $title: String!) {
+      issueUpdate(id: $id, input: { title: $title }) { success }
+    }`;
+  const data = await gql(token, query, { id: issueId, title });
+  return data.issueUpdate?.success === true;
+}
+
 // 이슈에 코멘트 작성.
 export async function createComment(token, issueId, body) {
   const query = `
@@ -286,4 +300,82 @@ export async function createIssue(token, { teamId, title, description }) {
   const data = await gql(token, query, { teamId, title, description: description || null });
   if (!data.issueCreate?.success) throw new Error("이슈 생성에 실패했습니다.");
   return data.issueCreate.issue;
+}
+
+// 팀 멤버 목록(담당자 변경 드롭다운용). 활성 사용자만, 이름순.
+export async function fetchTeamMembers(token, teamId) {
+  const query = `
+    query TeamMembers($id: String!) {
+      team(id: $id) {
+        id
+        members(first: 250) { nodes { id name displayName active } }
+      }
+    }`;
+  const data = await gql(token, query, { id: teamId });
+  const nodes = (data.team?.members?.nodes ?? []).filter((u) => u.active !== false);
+  return nodes.sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name));
+}
+
+// 팀 라벨 목록(라벨 지정 드롭다운/칩용). 그룹(부모) 라벨은 제외하고 이름순.
+export async function fetchTeamLabels(token, teamId) {
+  const query = `
+    query TeamLabels($id: String!) {
+      team(id: $id) {
+        id
+        labels(first: 250) { nodes { id name color isGroup } }
+      }
+    }`;
+  const data = await gql(token, query, { id: teamId });
+  const nodes = (data.team?.labels?.nodes ?? []).filter((l) => !l.isGroup);
+  return nodes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// 이슈 담당자 변경. assigneeId = null 이면 담당자 해제.
+export async function updateIssueAssignee(token, issueId, assigneeId) {
+  const query = `
+    mutation SetAssignee($id: String!, $assigneeId: String) {
+      issueUpdate(id: $id, input: { assigneeId: $assigneeId }) { success }
+    }`;
+  const data = await gql(token, query, { id: issueId, assigneeId: assigneeId || null });
+  return data.issueUpdate?.success === true;
+}
+
+// 이슈 중요도 변경. priority: 0 없음 / 1 긴급 / 2 높음 / 3 보통 / 4 낮음.
+export async function updateIssuePriority(token, issueId, priority) {
+  const query = `
+    mutation SetPriority($id: String!, $priority: Int!) {
+      issueUpdate(id: $id, input: { priority: $priority }) { success }
+    }`;
+  const data = await gql(token, query, { id: issueId, priority });
+  return data.issueUpdate?.success === true;
+}
+
+// 이슈 라벨 전체 교체(labelIds 배열로 지정한 집합으로 설정).
+export async function updateIssueLabels(token, issueId, labelIds) {
+  const query = `
+    mutation SetLabels($id: String!, $labelIds: [String!]) {
+      issueUpdate(id: $id, input: { labelIds: $labelIds }) { success }
+    }`;
+  const data = await gql(token, query, { id: issueId, labelIds });
+  return data.issueUpdate?.success === true;
+}
+
+// 이슈 프로젝트 변경. projectId = null 이면 프로젝트 해제.
+export async function updateIssueProject(token, issueId, projectId) {
+  const query = `
+    mutation SetProject($id: String!, $projectId: String) {
+      issueUpdate(id: $id, input: { projectId: $projectId }) { success }
+    }`;
+  const data = await gql(token, query, { id: issueId, projectId: projectId || null });
+  return data.issueUpdate?.success === true;
+}
+
+// 이슈 삭제(휴지통으로 이동). Linear 는 약 30일간 복구 가능.
+export async function deleteIssue(token, issueId) {
+  const query = `
+    mutation DeleteIssue($id: String!) {
+      issueDelete(id: $id) { success }
+    }`;
+  const data = await gql(token, query, { id: issueId });
+  return data.issueDelete?.success === true;
 }

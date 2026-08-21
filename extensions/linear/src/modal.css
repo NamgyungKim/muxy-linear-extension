@@ -19,7 +19,15 @@ body.tab #app { max-width: 760px; margin: 0 auto; }
   font-variant-numeric: tabular-nums;
 }
 .m-head .spacer { flex: 1; }
-.m-title { margin: 6px 0 8px; font-size: 15px; line-height: 1.4; }
+/* 제목: 항상 인라인 편집 필드지만 시각적으로는 제목처럼 보이게 한다. */
+textarea.m-title {
+  margin: 4px 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  min-height: 0;        /* 기본 textarea 의 min-height:60px 무효화 */
+  overflow: hidden;     /* 자동 높이 조절 → 스크롤바 숨김 */
+}
 .issue-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .issue-meta .chip {
   font-size: 11px;
@@ -317,12 +325,68 @@ textarea.invalid {
 }
 #desc.doc:hover { background: var(--muxy-surface, rgba(127, 127, 127, 0.07)); }
 #desc.md { font-size: 14px; line-height: 1.65; }
-/* 본문 편집 textarea도 문서처럼 넓고 깔끔하게 */
-#desc-input {
-  font-size: 14px;
-  line-height: 1.6;
-  border-color: var(--muxy-accent, #5e6ad2);
+
+/* Linear 스타일 인라인 편집: 읽기와 편집의 시각 차이를 없앤다. 하드 테두리/채워진
+   배경 없이, 호버·포커스에만 아주 옅은 배경만 준다 → 클릭해도 박스가 튀지 않는다. */
+.seamless {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 4px;
+  resize: none;                /* 자동 높이 조절을 쓰므로 리사이즈 핸들 숨김 */
+  transition: background 0.12s ease;
 }
+.seamless:hover { background: var(--muxy-surface, rgba(127, 127, 127, 0.07)); }
+.seamless:focus {
+  outline: none;
+  background: var(--muxy-surface, rgba(127, 127, 127, 0.1));
+  border-color: transparent;
+}
+/* 본문 편집칸은 읽기(.md)와 같은 크기로 맞춰 전환 시 글자가 안 움직이게 한다. */
+#desc-input { font-size: 14px; line-height: 1.65; min-height: 40px; }
+/* 코멘트 입력칸: 비어 있을 때 최소 높이만 확보(플레이스홀더 보이게). */
+#comment { min-height: 40px; }
+
+/* 속성(상태/담당자/중요도/프로젝트) — 2열 그리드로 콤팩트하게 */
+.props { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.props .field { margin-bottom: 8px; }
+
+/* 라벨 토글 칩: 켜진 것만 라벨 색으로 강조, 나머지는 흐리게. */
+.label-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.3));
+  color: var(--muxy-foreground, #e6e6e6);
+  opacity: 0.65;
+}
+.label-chip::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--label-color, #8a8f98);
+}
+.label-chip:hover { opacity: 1; }
+.label-chip.on {
+  opacity: 1;
+  border-color: var(--label-color, #8a8f98);
+  background: color-mix(in srgb, var(--label-color, #8a8f98) 18%, transparent);
+}
+
+/* 위험 동작 버튼(이슈 삭제) */
+button.danger {
+  color: #e5484d;
+  background: transparent;
+  border-color: color-mix(in srgb, #e5484d 40%, transparent);
+}
+button.danger:hover { background: color-mix(in srgb, #e5484d 15%, transparent); }
 
 /* 코멘트 목록 */
 .comments { display: flex; flex-direction: column; gap: 10px; }

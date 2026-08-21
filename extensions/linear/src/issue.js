@@ -4,7 +4,12 @@
 import "./theme.css";
 import "./modal.css";
 import { run } from "./fatal.js";
-import { fetchTeamStates, updateIssueState, createComment, fetchIssueDetail, updateIssueDescription } from "./linear.js";
+import {
+  fetchTeamStates, updateIssueState, createComment, fetchIssueDetail,
+  updateIssueDescription, updateIssueTitle,
+  fetchTeamMembers, fetchTeamLabels, fetchTeamProjects,
+  updateIssueAssignee, updateIssuePriority, updateIssueLabels, updateIssueProject, deleteIssue,
+} from "./linear.js";
 import { renderMarkdown } from "./markdown.js";
 import { listBaseBranchCandidates, defaultBranch } from "./git.js";
 import { applicableActions, runAction } from "./actions.js";
@@ -51,39 +56,49 @@ async function main() {
     <header class="m-head">
       <div class="m-id">${escapeHtml(issue.identifier)}</div>
       <button id="open-web" class="icon-btn" title="${t("issue.openInLinear")}">↗</button>
+      <button id="delete" class="icon-btn danger" title="${t("issue.delete")}">🗑</button>
     </header>
-    <h2 class="m-title">${escapeHtml(issue.title)}</h2>
-    <div class="issue-meta">
-      <span class="chip">👤 ${escapeHtml(issue.assignee?.displayName || issue.assignee?.name || t("issue.unassigned"))}</span>
-      ${issue.project?.name ? `<span class="chip">📁 ${escapeHtml(issue.project.name)}</span>` : ""}
-      ${issue.projectMilestone?.name ? `<span class="chip">◆ ${escapeHtml(issue.projectMilestone.name)}</span>` : ""}
+    <textarea id="title-input" class="m-title seamless" rows="1" spellcheck="false">${escapeHtml(issue.title)}</textarea>
+    ${issue.projectMilestone?.name ? `<div class="issue-meta"><span class="chip">◆ ${escapeHtml(issue.projectMilestone.name)}</span></div>` : ""}
+
+    <div class="props">
+      <div class="field">
+        <span class="label">${t("issue.state")}</span>
+        <select id="state"><option>${t("common.loading")}</option></select>
+      </div>
+      <div class="field">
+        <span class="label">${t("issue.assignee")}</span>
+        <select id="assignee"><option>${t("common.loading")}</option></select>
+      </div>
+      <div class="field">
+        <span class="label">${t("issue.priority")}</span>
+        <select id="priority"></select>
+      </div>
+      <div class="field">
+        <span class="label">${t("issue.project")}</span>
+        <select id="project"><option>${t("common.loading")}</option></select>
+      </div>
     </div>
 
     <div class="field">
-      <span class="label">${t("issue.state")}</span>
-      <select id="state"><option>${t("common.loading")}</option></select>
+      <span class="label">${t("issue.labels")}</span>
+      <div id="labels" class="label-chips muted">${t("common.loading")}</div>
     </div>
 
     <div class="field">
       <span class="label">${t("issue.body")} <span class="muted" style="font-weight:400;font-size:11px">${t("issue.clickToEdit")}</span></span>
       <div id="desc" class="md doc muted" title="${t("issue.clickToEditTitle")}">${t("common.loading")}</div>
-      <textarea id="desc-input" hidden style="min-height:160px"></textarea>
+      <textarea id="desc-input" class="seamless" hidden></textarea>
     </div>
 
     <hr class="sep" />
     <h3 class="sec-title">${t("issue.comments")}</h3>
     <div id="comments" class="comments muted">${t("common.loading")}</div>
     <div class="field" style="margin-top:10px">
-      <div class="row" style="margin-bottom:4px">
-        <span class="label" style="margin:0">${t("issue.newComment")}</span>
+      <textarea id="comment" class="seamless" placeholder="${t("issue.commentPlaceholder")}"></textarea>
+      <div class="row" id="comment-actions" hidden style="margin-top:6px">
         <span class="spacer"></span>
-        <button id="preview-toggle" class="mini">${t("issue.preview")}</button>
-      </div>
-      <textarea id="comment" placeholder="${t("issue.commentPlaceholder")}"></textarea>
-      <div id="comment-preview" class="md" hidden></div>
-      <div class="row" style="margin-top:6px">
-        <span class="spacer"></span>
-        <button id="add-comment">${t("issue.addComment")}</button>
+        <button id="add-comment" class="primary">${t("issue.addComment")}</button>
       </div>
     </div>
 
@@ -112,6 +127,44 @@ async function main() {
   const $ = (id) => document.getElementById(id);
   const errEl = $("err");
   const showErr = (m) => { errEl.textContent = m; errEl.hidden = !m; };
+
+  // 여러 줄 입력을 내용 높이에 맞춰 자동으로 늘린다(스크롤바 없이) → 편집 시 박스가
+  // 튀어나오지 않고 문서처럼 자연스럽게 늘어난다.
+  function autoGrow(el) {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
+
+  // 제목: Linear 처럼 항상 인라인 편집 필드. 포커스 아웃 또는 Enter 로 저장한다.
+  const titleEl = $("title-input");
+  autoGrow(titleEl);
+  titleEl.addEventListener("input", () => autoGrow(titleEl));
+  let titleSaving = false;
+  async function saveTitle() {
+    if (titleSaving) return;
+    const next = titleEl.value.trim();
+    // 비었거나 그대로면 원래 제목으로 되돌리고 저장하지 않는다.
+    if (!next || next === issue.title) { titleEl.value = issue.title; autoGrow(titleEl); return; }
+    titleSaving = true;
+    try {
+      await updateIssueTitle(config.api_token, issue.id, next);
+      issue.title = next;
+      changed = true;
+      if (asTab) { try { muxy.tabs?.setTitle?.(issue.identifier); } catch { /* setTitle 미지원 무시 */ } }
+      toast(t("issue.titleSaved"), issue.identifier);
+    } catch (e) {
+      showErr(e.message);
+      titleEl.value = issue.title;
+      autoGrow(titleEl);
+    } finally {
+      titleSaving = false;
+    }
+  }
+  titleEl.addEventListener("blur", saveTitle);
+  titleEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); titleEl.blur(); } // Enter 저장, Shift+Enter 줄바꿈
+    else if (e.key === "Escape") { titleEl.value = issue.title; autoGrow(titleEl); titleEl.blur(); }
+  });
 
   // 브랜치 기본값
   $("branch").value = defaultBranch(issue);
@@ -239,6 +292,186 @@ async function main() {
     })
     .catch((e) => showErr(e.message));
 
+  // ---- 속성 편집(담당자 / 중요도 / 프로젝트 / 라벨) ---------------------------
+  // 값 변경은 모두 즉시 저장하고 목록 갱신 플래그(changed)를 세운다. API 키가 없으면
+  // 조회/수정이 불가하므로 현재 값을 읽기 전용으로만 보여준다.
+  const canEdit = !!config.api_token;
+
+  // 중요도: 토큰 없이도 정적으로 채운다(현재 값은 issue.priority 에 있음).
+  (function initPriority() {
+    const sel = $("priority");
+    const opts = [
+      [0, t("priority.none")], [1, t("priority.urgent")], [2, t("priority.high")],
+      [3, t("priority.normal")], [4, t("priority.low")],
+    ];
+    sel.innerHTML = "";
+    for (const [v, label] of opts) {
+      const opt = document.createElement("option");
+      opt.value = String(v);
+      opt.textContent = label;
+      if (v === (issue.priority ?? 0)) opt.selected = true;
+      sel.append(opt);
+    }
+    sel.disabled = !canEdit;
+    if (!canEdit) return;
+    sel.addEventListener("change", async () => {
+      try {
+        await updateIssuePriority(config.api_token, issue.id, Number(sel.value));
+        issue.priority = Number(sel.value);
+        changed = true;
+        toast(t("issue.saved"), issue.identifier);
+      } catch (e) { showErr(e.message); }
+    });
+  })();
+
+  // 담당자 드롭다운
+  if (canEdit) {
+    fetchTeamMembers(config.api_token, issue.team.id)
+      .then((members) => {
+        const sel = $("assignee");
+        sel.innerHTML = "";
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = t("issue.unassigned");
+        sel.append(none);
+        for (const m of members) {
+          const opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = m.displayName || m.name;
+          if (m.id === issue.assignee?.id) opt.selected = true;
+          sel.append(opt);
+        }
+        sel.addEventListener("change", async () => {
+          try {
+            await updateIssueAssignee(config.api_token, issue.id, sel.value || null);
+            issue.assignee = sel.value ? { id: sel.value, displayName: sel.options[sel.selectedIndex].text } : null;
+            changed = true;
+            toast(t("issue.saved"), issue.identifier);
+          } catch (e) { showErr(e.message); }
+        });
+      })
+      .catch((e) => { showErr(e.message); });
+  } else {
+    $("assignee").innerHTML = `<option>${escapeHtml(issue.assignee?.displayName || issue.assignee?.name || t("issue.unassigned"))}</option>`;
+    $("assignee").disabled = true;
+  }
+
+  // 프로젝트 드롭다운
+  if (canEdit) {
+    fetchTeamProjects(config.api_token, issue.team.id)
+      .then((projects) => {
+        const sel = $("project");
+        sel.innerHTML = "";
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = t("issue.noProject");
+        sel.append(none);
+        // 현재 프로젝트가 목록에 없으면(상태/권한 등) 맨 앞에 보강해 선택을 유지한다.
+        let list = projects;
+        if (issue.project?.id && !list.some((p) => p.id === issue.project.id)) {
+          list = [{ id: issue.project.id, name: issue.project.name }, ...list];
+        }
+        for (const p of list) {
+          const opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name;
+          if (p.id === issue.project?.id) opt.selected = true;
+          sel.append(opt);
+        }
+        sel.addEventListener("change", async () => {
+          try {
+            await updateIssueProject(config.api_token, issue.id, sel.value || null);
+            issue.project = sel.value ? { id: sel.value, name: sel.options[sel.selectedIndex].text } : null;
+            changed = true;
+            toast(t("issue.saved"), issue.identifier);
+          } catch (e) { showErr(e.message); }
+        });
+      })
+      .catch((e) => { showErr(e.message); });
+  } else {
+    $("project").innerHTML = `<option>${escapeHtml(issue.project?.name || t("issue.noProject"))}</option>`;
+    $("project").disabled = true;
+  }
+
+  // 라벨: 팀 전체 라벨을 토글 칩으로 보여주고, 켜진 칩 집합을 이슈 라벨로 저장한다.
+  // 팀 라벨 목록(teamLabels)과 현재 이슈 라벨(issueLabelIds, loadDetail 에서 채움)이
+  // 모두 준비돼야 렌더한다.
+  let teamLabels = null;
+  let issueLabelIds = null;
+  let labelSaving = false;
+  function renderLabels() {
+    const box = $("labels");
+    if (!canEdit) {
+      box.classList.remove("muted");
+      const names = (issue.labels || []).map((l) => l.name);
+      box.textContent = names.length ? names.join(", ") : t("issue.noLabels");
+      return;
+    }
+    if (!teamLabels || !issueLabelIds) return;
+    box.classList.remove("muted");
+    box.innerHTML = "";
+    if (!teamLabels.length) { box.textContent = t("issue.noLabels"); return; }
+    for (const l of teamLabels) {
+      const chip = h(`<button class="label-chip" type="button"></button>`);
+      chip.classList.toggle("on", issueLabelIds.has(l.id));
+      chip.style.setProperty("--label-color", l.color || "#8a8f98");
+      chip.textContent = l.name;
+      chip.addEventListener("click", () => toggleLabel(l.id, chip));
+      box.append(chip);
+    }
+  }
+  async function toggleLabel(id, chip) {
+    if (labelSaving) return;
+    labelSaving = true;
+    const next = new Set(issueLabelIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    try {
+      await updateIssueLabels(config.api_token, issue.id, [...next]);
+      issueLabelIds = next;
+      chip.classList.toggle("on", next.has(id));
+      changed = true;
+      toast(t("issue.saved"), issue.identifier);
+    } catch (e) {
+      showErr(e.message);
+    } finally {
+      labelSaving = false;
+    }
+  }
+  if (canEdit) {
+    fetchTeamLabels(config.api_token, issue.team.id)
+      .then((labels) => { teamLabels = labels; renderLabels(); })
+      .catch((e) => showErr(e.message));
+  } else {
+    renderLabels(); // 토큰 없으면 읽기 전용 표시(대개 라벨 없음)
+  }
+
+  // 삭제 버튼: 토큰 있을 때만. 확인 후 휴지통으로 이동하고 창을 닫는다.
+  if (!canEdit) {
+    $("delete").style.display = "none";
+  } else {
+    $("delete").addEventListener("click", async () => {
+      const ok = await muxy.dialog
+        .confirm({
+          title: t("issue.delete"),
+          message: t("issue.deleteConfirm", { id: issue.identifier }),
+          buttons: [t("common.delete"), t("common.cancel")],
+          cancel: t("common.cancel"),
+        })
+        .then((c) => c === t("common.delete"))
+        .catch(() => false);
+      if (!ok) return;
+      try {
+        await deleteIssue(config.api_token, issue.id);
+        changed = true;
+        toast(t("issue.deleted"), issue.identifier);
+        if (!asTab) muxy.modal.submitWebview({ changed: true });
+        else muxy.lifecycle.close();
+      } catch (e) {
+        showErr(e.message);
+      }
+    });
+  }
+
   // 본문 + 코멘트 로드(마크다운 렌더링)
   function renderComments(list) {
     const box = $("comments");
@@ -274,6 +507,10 @@ async function main() {
       rawDescription = detail?.description || "";
       paintDesc();
       renderComments(comments);
+      // 현재 이슈 라벨을 반영(라벨 칩 렌더에 사용).
+      issue.labels = detail?.labels?.nodes || [];
+      issueLabelIds = new Set(issue.labels.map((l) => l.id));
+      renderLabels();
     } catch (e) {
       $("desc").textContent = "";
       $("comments").textContent = "";
@@ -289,6 +526,7 @@ async function main() {
     ta.value = rawDescription;
     ta.hidden = false;
     $("desc").hidden = true;
+    autoGrow(ta);
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }
@@ -297,6 +535,7 @@ async function main() {
     $("desc").hidden = false;
   }
   $("desc").addEventListener("click", startEditDesc);
+  $("desc-input").addEventListener("input", () => autoGrow($("desc-input")));
   $("desc-input").addEventListener("keydown", (e) => {
     if (e.key === "Escape") stopEditDesc(); // 저장 없이 닫기
   });
@@ -330,38 +569,36 @@ async function main() {
     if (!asTab) muxy.modal.submitWebview({ changed });
   });
 
-  // 코멘트 작성 미리보기 토글
-  let previewOn = false;
-  $("preview-toggle").addEventListener("click", () => {
-    previewOn = !previewOn;
-    const pv = $("comment-preview");
-    const ta = $("comment");
-    if (previewOn) {
-      pv.innerHTML = renderMarkdown(ta.value || t("issue.previewEmpty"));
-      pv.hidden = false;
-      ta.hidden = true;
-      $("preview-toggle").textContent = t("common.edit");
-    } else {
-      pv.hidden = true;
-      ta.hidden = false;
-      $("preview-toggle").textContent = t("issue.preview");
-    }
-  });
-
   // Linear에서 열기(Muxy 내장 브라우저)
   $("open-web").addEventListener("click", () => {
     Promise.resolve(muxy.browser.open(issue.url)).catch((e) => showErr(e.message));
   });
 
+  // 코멘트: 본문 편집처럼 깔끔한 인라인 필드. 내용에 맞춰 자동으로 늘어나고, 작성 중일
+  // 때만(포커스 또는 내용 있음) "코멘트 추가" 버튼을 노출한다.
+  const commentEl = $("comment");
+  function syncCommentActions() {
+    const active = document.activeElement === commentEl || commentEl.value.trim() !== "";
+    $("comment-actions").hidden = !active;
+  }
+  commentEl.addEventListener("input", () => { autoGrow(commentEl); syncCommentActions(); });
+  commentEl.addEventListener("focus", syncCommentActions);
+  commentEl.addEventListener("blur", syncCommentActions);
+  // Cmd/Ctrl+Enter 로 바로 등록(본문처럼 키보드로 마무리).
+  commentEl.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); $("add-comment").click(); }
+  });
+
   // 코멘트 추가
   $("add-comment").addEventListener("click", async () => {
-    const body = $("comment").value.trim();
+    const body = commentEl.value.trim();
     if (!body) return;
     $("add-comment").disabled = true;
     try {
       await createComment(config.api_token, issue.id, body);
-      $("comment").value = "";
-      if (previewOn) $("preview-toggle").click();
+      commentEl.value = "";
+      autoGrow(commentEl);
+      syncCommentActions();
       changed = true;
       toast(t("issue.commentAdded"), issue.identifier);
       await loadDetail();
