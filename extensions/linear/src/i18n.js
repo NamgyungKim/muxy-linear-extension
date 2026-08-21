@@ -116,6 +116,10 @@ const DICT = {
     "create.descPh": "Markdown supported",
     "create.titleRequired": "Enter a title.",
     "create.created": "Issue created",
+    "create.template": "Template",
+    "create.noTemplate": "No template",
+    "create.milestone": "Milestone",
+    "create.noMilestone": "No milestone",
 
     // ── link modal ──
     "link.needKey": "Enter a Linear API Key in Settings first.",
@@ -433,6 +437,10 @@ const DICT = {
     "create.descPh": "마크다운 지원",
     "create.titleRequired": "제목을 입력하세요.",
     "create.created": "이슈 생성됨",
+    "create.template": "템플릿",
+    "create.noTemplate": "템플릿 없음",
+    "create.milestone": "마일스톤",
+    "create.noMilestone": "마일스톤 없음",
 
     "link.needKey": "먼저 설정에서 Linear API Key를 입력하세요.",
     "link.title": "이 프로젝트를 Linear에 연결",
@@ -745,6 +753,10 @@ const DICT = {
     "create.descPh": "Markdown 対応",
     "create.titleRequired": "タイトルを入力してください。",
     "create.created": "課題を作成しました",
+    "create.template": "テンプレート",
+    "create.noTemplate": "テンプレートなし",
+    "create.milestone": "マイルストーン",
+    "create.noMilestone": "マイルストーンなし",
 
     "link.needKey": "先に設定で Linear API Key を入力してください。",
     "link.title": "このプロジェクトを Linear に接続",
@@ -1057,6 +1069,10 @@ const DICT = {
     "create.descPh": "支持 Markdown",
     "create.titleRequired": "请输入标题。",
     "create.created": "问题已创建",
+    "create.template": "模板",
+    "create.noTemplate": "无模板",
+    "create.milestone": "里程碑",
+    "create.noMilestone": "无里程碑",
 
     "link.needKey": "请先在设置中输入 Linear API Key。",
     "link.title": "将本项目连接到 Linear",

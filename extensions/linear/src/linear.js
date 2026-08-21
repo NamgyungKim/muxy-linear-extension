@@ -289,18 +289,60 @@ export async function resolveTeam(token, teamKey) {
   return team;
 }
 
-// 새 이슈 생성.
-export async function createIssue(token, { teamId, title, description }) {
+// 새 이슈 생성. 담당자/중요도/프로젝트/마일스톤/라벨/상태를 선택적으로 함께 지정한다.
+// 값이 비면(빈 문자열/undefined) input 에서 빼서 팀 기본값을 따르게 한다.
+export async function createIssue(token, {
+  teamId, title, description,
+  assigneeId, priority, projectId, projectMilestoneId, labelIds, stateId,
+}) {
+  const input = { teamId, title, description: description || null };
+  if (assigneeId) input.assigneeId = assigneeId;
+  if (typeof priority === "number") input.priority = priority;
+  if (projectId) input.projectId = projectId;
+  if (projectMilestoneId) input.projectMilestoneId = projectMilestoneId;
+  if (labelIds?.length) input.labelIds = labelIds;
+  if (stateId) input.stateId = stateId;
   const query = `
-    mutation Create($teamId: String!, $title: String!, $description: String) {
-      issueCreate(input: { teamId: $teamId, title: $title, description: $description }) {
+    mutation Create($input: IssueCreateInput!) {
+      issueCreate(input: $input) {
         success
         issue { id identifier url }
       }
     }`;
-  const data = await gql(token, query, { teamId, title, description: description || null });
+  const data = await gql(token, query, { input });
   if (!data.issueCreate?.success) throw new Error("이슈 생성에 실패했습니다.");
   return data.issueCreate.issue;
+}
+
+// 특정 프로젝트의 마일스톤 목록(생성 모달의 마일스톤 드롭다운용).
+export async function fetchProjectMilestones(token, projectId) {
+  if (!projectId) return [];
+  const query = `
+    query ProjectMilestones($id: String!) {
+      project(id: $id) {
+        id
+        projectMilestones(first: 100) { nodes { id name sortOrder } }
+      }
+    }`;
+  const data = await gql(token, query, { id: projectId });
+  const nodes = data.project?.projectMilestones?.nodes ?? [];
+  return nodes.slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+}
+
+// 팀에서 사용 가능한 이슈 템플릿 목록(워크스페이스 공용 템플릿 포함).
+// templateData 에는 제목/본문/중요도/라벨/담당자/프로젝트 등 기본값이 들어 있어
+// 생성 폼을 채우는 데 쓴다. Linear 는 JSON 스칼라로 객체를 그대로 돌려준다.
+export async function fetchTeamTemplates(token, teamId) {
+  const query = `
+    query TeamTemplates($id: String!) {
+      team(id: $id) {
+        id
+        templates(first: 100) { nodes { id name type templateData } }
+      }
+    }`;
+  const data = await gql(token, query, { id: teamId });
+  const nodes = (data.team?.templates?.nodes ?? []).filter((t) => t.type === "issue" || !t.type);
+  return nodes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // 팀 멤버 목록(담당자 변경 드롭다운용). 활성 사용자만, 이름순.
