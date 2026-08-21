@@ -273,15 +273,20 @@ async function runRowAction(action, issue) {
   }
 }
 
-// 한 그룹 안에서 부모 → 자식 순으로 정렬(자식은 들여쓰기). 그룹에 부모가 없으면
-// 자식이라도 그냥 표시한다.
-function orderWithChildren(issues) {
-  const byId = new Map(issues.map((i) => [i.id, i]));
+// 한 그룹 안에서 부모 → 자식 순으로 정렬(자식은 들여쓰기).
+//
+// ctx(선택): 전체 목록 기준의 부모/자식 관계. 상태별 그룹핑에선 부모와 하위 이슈가
+// 서로 다른 그룹으로 흩어지므로, 접기/펼치기는 그룹이 아니라 "전체 목록" 기준으로
+// 판단해야 한다(KNK-84). ctx.byId = 전체 이슈 id 맵, ctx.hasKids = 하위 이슈를 가진
+// 부모 id 집합. ctx 가 없으면(핀 고정된 현재 브랜치 섹션 등) 접기 메타를 달지 않는다.
+function orderWithChildren(issues, ctx = null) {
+  const localIds = new Set(issues.map((i) => i.id));
   const childrenOf = new Map();
   const roots = [];
   for (const it of issues) {
     const pid = it.parent?.id;
-    if (pid && byId.has(pid)) {
+    // 같은 그룹 안에 부모가 있으면 그 아래로 들여써 중첩 표시한다.
+    if (pid && localIds.has(pid)) {
       if (!childrenOf.has(pid)) childrenOf.set(pid, []);
       childrenOf.get(pid).push(it);
     } else {
@@ -289,21 +294,27 @@ function orderWithChildren(issues) {
     }
   }
   const out = [];
-  for (const r of roots) {
-    const kids = childrenOf.get(r.id) ?? [];
-    out.push({ issue: r, indent: false, hasChildren: kids.length > 0 });
-    for (const c of kids) out.push({ issue: c, indent: true, parentId: r.id });
-  }
+  const emit = (issue, indent) => {
+    // caret 노출 여부는 전체 목록 기준(다른 그룹에 하위 이슈가 있어도 표시).
+    const hasChildren = ctx ? ctx.hasKids.has(issue.id) : false;
+    // data-child-of 는 부모가 전체 목록에 존재하면(다른 그룹이어도) 달아 둔다 →
+    // 부모를 접으면 그룹을 가로질러 하위 이슈가 모두 숨겨진다.
+    const parentId = ctx && issue.parent?.id && ctx.byId.has(issue.parent.id) ? issue.parent.id : null;
+    out.push({ issue, indent, hasChildren, parentId });
+    for (const c of childrenOf.get(issue.id) ?? []) emit(c, true);
+  };
+  for (const r of roots) emit(r, false);
   return out;
 }
 
-// 부모 행의 caret 을 토글해 자식 행을 접거나 편다.
-function toggleCollapse(wrap, parentId, caret) {
+// 부모 행의 caret 을 토글해 하위 이슈 행을 접거나 편다. 상태별 그룹핑 등으로 하위
+// 이슈가 여러 그룹에 흩어져 있어도 전체 목록(content)에서 찾아 함께 접는다(KNK-84).
+function toggleCollapse(parentId, caret) {
   const isCollapsed = collapsed.has(parentId);
   if (isCollapsed) collapsed.delete(parentId);
   else collapsed.add(parentId);
   caret.textContent = collapsed.has(parentId) ? "▸" : "▾";
-  for (const child of wrap.querySelectorAll(`[data-child-of="${parentId}"]`)) {
+  for (const child of content.querySelectorAll(`[data-child-of="${parentId}"]`)) {
     child.hidden = collapsed.has(parentId);
   }
 }
@@ -321,22 +332,22 @@ function section(titleText, issues, opts = {}) {
     header.append(document.createTextNode(`${titleText} · ${issues.length}`));
     wrap.append(header);
   }
-  for (const entry of orderWithChildren(issues)) {
+  for (const entry of orderWithChildren(issues, opts.collapseCtx)) {
     const row = issueRow(entry.issue, { indent: entry.indent, showProject: opts.showProject });
 
-    // 자식 행: 부모가 접혀 있으면 숨김.
+    // 자식 행: 부모가 접혀 있으면 숨김(부모가 다른 그룹에 있어도 동일).
     if (entry.parentId) {
       row.dataset.childOf = entry.parentId;
       if (collapsed.has(entry.parentId)) row.hidden = true;
     }
 
-    // 자식이 있는 부모 행: 접기/펼치기 caret 추가.
+    // 하위 이슈가 있는 부모 행: 접기/펼치기 caret 추가.
     if (entry.hasChildren) {
       const caret = el("span", { className: "caret" }, collapsed.has(entry.issue.id) ? "▸" : "▾");
       caret.title = t("panel.toggleChildren");
       caret.addEventListener("click", (e) => {
         e.stopPropagation(); // 행 클릭(이슈 열기)로 전파 방지
-        toggleCollapse(wrap, entry.issue.id, caret);
+        toggleCollapse(entry.issue.id, caret);
       });
       row.querySelector(".issue-top").prepend(caret);
     }
@@ -517,16 +528,27 @@ function renderList() {
   }
 
   // 현재 브랜치 이슈를 최상단으로 분리(그룹/정렬 방식과 무관하게 강조).
+  // 핀 고정 행이므로 접기 대상에서 제외한다(collapseCtx 를 넘기지 않음).
   const current = filtered.find((i) => i.identifier === currentIssueId);
   const rest = filtered.filter((i) => i.identifier !== currentIssueId);
   if (current) content.append(section(t("panel.currentBranch"), [current], { showProject }));
+
+  // 접기/펼치기용 전체 관계 컨텍스트: 그룹을 가로질러도 부모→하위 이슈를 판단한다.
+  // (상태별 그룹핑에선 부모와 하위 이슈가 서로 다른 그룹에 놓이므로 필수. KNK-84)
+  const byId = new Map(rest.map((i) => [i.id, i]));
+  const hasKids = new Set();
+  for (const i of rest) {
+    const pid = i.parent?.id;
+    if (pid && byId.has(pid)) hasKids.add(pid);
+  }
+  const collapseCtx = { byId, hasKids };
 
   // 선택한 기준으로 그룹핑 + 그룹 내 정렬(자식 중첩은 section 이 처리).
   const cmp = sortComparator(displayCfg.list_sort_by || "updated");
   const groups = buildGroups(rest, displayCfg.list_group_by || "status");
   for (const g of groups) {
     const ordered = g.issues.slice().sort(cmp);
-    content.append(section(g.title, ordered, { showProject, color: g.color }));
+    content.append(section(g.title, ordered, { showProject, color: g.color, collapseCtx }));
   }
   content.scrollTop = prevScroll; // 재그리기 후 스크롤 위치 복원
 }
