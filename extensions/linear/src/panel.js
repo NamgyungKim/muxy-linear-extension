@@ -937,7 +937,11 @@ async function openCreate() {
     console.warn("[linear] 새 이슈를 탭으로 열기 실패 → 모달로 폴백:", e?.message || e);
   }
   const result = await muxy.modal.openWebview({ entry: "modals/create.html", width: 460, height: 640 });
-  if (result?.created) render();
+  // KNK-98: 생성되면 방금 만든 이슈의 상세를 바로 연다(모달 폴백 경로).
+  if (result?.created) {
+    render();
+    if (result.issue) openIssue(result.issue);
+  }
 }
 
 async function openLink() {

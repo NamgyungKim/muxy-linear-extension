@@ -5,7 +5,8 @@
 import "./theme.css";
 import "./modal.css";
 import { run } from "./fatal.js";
-import { loadConfig, effectiveToken } from "./config.js";
+import { loadConfig, effectiveToken, applyProjectSettings } from "./config.js";
+import { mergeActions } from "./actions.js";
 import { readProjectConfig } from "./project.js";
 import {
   resolveTeam, createIssue,
@@ -341,10 +342,27 @@ async function main() {
         parentId: parent?.id || undefined,
       });
       muxy.toast?.({ title: t("create.created"), body: `${created.identifier}` });
-      // 탭: 생성 후 탭을 닫는다(패널 목록은 폴링으로 자동 갱신).
-      // 모달: submitWebview 로 결과를 패널에 전달하며 닫는다(패널이 render() 로 갱신).
-      if (asTab) muxy.lifecycle.close();
-      else muxy.modal.submitWebview({ created: true, issue: created });
+      // KNK-98: 생성 후 방금 만든 이슈의 상세 페이지로 바로 이동한다.
+      // issue.js 는 초기 렌더에 id/identifier/title/url 만 있으면 되고(나머지는
+      // loadDetail 이 id 로 다시 조회), 여기서 제목은 폼 값으로 채워 넘긴다.
+      const openedIssue = { ...created, title };
+      // 탭: 이슈 상세 탭(싱글턴)을 열고, 현재 생성 탭을 닫는다.
+      //     extensionWebView 미지원 구버전 muxy 는 예외를 잡아 그냥 탭만 닫는다.
+      // 모달: submitWebview 로 결과(열 이슈 포함)를 패널에 전달 → 패널이 상세를 연다.
+      if (asTab) {
+        try {
+          const eff = { ...applyProjectSettings(config, projectCfg), actions: mergeActions(config.actions, projectCfg?.actions) };
+          await muxy.tabs.open({
+            kind: "extensionWebView",
+            extension: { id: "linear", tabType: "issue", singleton: true, data: { issue: openedIssue, config: eff, mode: "tab" } },
+          });
+        } catch (e) {
+          console.warn("[linear] 생성 후 이슈 탭 열기 실패:", e?.message || e);
+        }
+        muxy.lifecycle.close();
+      } else {
+        muxy.modal.submitWebview({ created: true, issue: openedIssue });
+      }
     } catch (e) {
       showErr(e.message);
       $("create").disabled = false;
