@@ -54,6 +54,9 @@ export const CONFIG_DEFAULTS = {
   list_group_by: "status",
   // list_sort_by: updated | created | priority | title
   list_sort_by: "updated",
+  // 목록에서 숨길 상태 이름 목록(예: ["Done", "Canceled"]). 상태 필터 체크리스트에서
+  // 체크 해제한 상태가 여기에 저장되어 재시작 후에도 유지된다. 빈 배열 = 모두 표시.
+  list_hidden_states: [],
 
   // 상태별 액션(워크플로우). 각 액션은:
   //  - label: 버튼 이름

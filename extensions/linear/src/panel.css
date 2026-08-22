@@ -51,12 +51,52 @@
   flex: 0 0 auto;
 }
 
-.state-filter {
-  width: auto;
-  max-width: 180px;
-  font-size: 12px;
-  padding: 3px 8px;
+.state-filter { position: relative; }
+/* 숨긴 상태가 있을 때 필터 버튼에 점을 찍어 '필터 적용 중'을 알린다. */
+.state-filter.is-active { color: var(--muxy-accent, #5e6ad2); }
+.state-filter.is-active::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muxy-accent, #5e6ad2);
 }
+
+/* 상태 필터 체크리스트 팝오버 — 상단바 왼쪽 아래에 뜬다. */
+.popover--check { right: auto; left: 8px; min-width: 180px; max-height: 60vh; overflow-y: auto; }
+.popover--check .popover-actions {
+  display: flex;
+  gap: 6px;
+  padding: 2px 2px 6px;
+  border-bottom: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.25));
+  margin-bottom: 6px;
+}
+.popover--check .popover-actions button {
+  flex: 1;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.35));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.popover--check .popover-actions button:hover { background: var(--muxy-hover, rgba(127, 127, 127, 0.15)); }
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.check-row:hover { background: var(--muxy-hover, rgba(127, 127, 127, 0.12)); }
+.check-row input { margin: 0; cursor: pointer; }
+.check-row .check-count { margin-left: auto; opacity: 0.6; font-variant-numeric: tabular-nums; }
 
 /* 상단바 로딩 표시: 목록을 비우지 않고 이 동그라미만 돌린다. */
 .topbar-spinner {

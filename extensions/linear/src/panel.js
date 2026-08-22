@@ -28,7 +28,7 @@ let currentIssueId = null; // 현재 git 브랜치에 해당하는 이슈 identi
 let projectCfg = null; // .linear.json 내용(연결 정보) 또는 null
 let displayCfg = {}; // 목록 표시 옵션(config 의 list_* 값)
 let allIssues = []; // 마지막으로 가져온 이슈 전체(상태 필터는 클라이언트에서 적용)
-let stateFilter = ""; // 선택된 상태 이름("" = 전체)
+let hiddenStates = new Set(); // 숨길 상태 이름 집합(비어 있으면 전체 표시). config.list_hidden_states 에 저장.
 let searchQuery = ""; // 이슈 검색어(번호/제목)
 const collapsed = new Set(); // 접힌 부모 이슈 id 집합(자식 숨김)
 
@@ -58,8 +58,6 @@ function applyStaticI18n() {
   if (mine) mine.textContent = t("panel.myIssues");
   const all = document.querySelector('#who .seg-btn[data-who="all"]');
   if (all) all.textContent = t("panel.wholeProject");
-  const sfFirst = document.querySelector("#state-filter option[value='']");
-  if (sfFirst) sfFirst.textContent = t("common.all");
   // 아이콘 버튼 · 필터 tooltip
   const setTitle = (id, key) => { const n = document.getElementById(id); if (n) n.title = t(key); };
   setTitle("state-filter", "panel.stateFilterTitle");
@@ -457,25 +455,67 @@ function distinctStates(issues) {
   });
 }
 
-// 상태 필터 select 를 채운다(각 상태 옆에 개수 표시). 이전 선택은 유지.
+// 숨긴 상태 중 지금 목록에 실제로 존재하는 것 개수(버튼 활성 표시/툴팁용).
+function activeHiddenCount(states) {
+  return states.reduce((n, s) => n + (hiddenStates.has(s.name) ? 1 : 0), 0);
+}
+
+// 상태 필터 버튼의 활성 표시(점)와 툴팁을 현재 숨김 상태에 맞춰 갱신한다.
+function updateStateFilterButton(states) {
+  const btn = document.getElementById("state-filter");
+  if (!btn) return;
+  const hidden = activeHiddenCount(states);
+  btn.classList.toggle("is-active", hidden > 0);
+  btn.title = hidden > 0 ? `${t("panel.stateFilterTitle")} (${hidden})` : t("panel.stateFilterTitle");
+}
+
+// 상태 필터 체크리스트를 채운다. 각 상태는 체크박스(체크=표시, 해제=숨김) + 개수.
+// 상단에 '모두 표시 / 모두 숨김' 빠른 토글을 둔다. 숨김 집합은 config 에 저장된다.
 function populateStateFilter() {
-  const sel = document.getElementById("state-filter");
+  const menu = document.getElementById("state-filter-menu");
   const states = distinctStates(allIssues);
-  // 이전 선택 상태가 사라졌으면 전체로.
-  if (stateFilter && !states.some((s) => s.name === stateFilter)) stateFilter = "";
-  sel.innerHTML = "";
-  const optAll = document.createElement("option");
-  optAll.value = "";
-  optAll.textContent = t("panel.filterAll", { n: allIssues.length });
-  sel.append(optAll);
+  updateStateFilterButton(states);
+  if (!menu) return;
+  menu.innerHTML = "";
+
+  const actions = document.createElement("div");
+  actions.className = "popover-actions";
+  const showAll = document.createElement("button");
+  showAll.type = "button";
+  showAll.dataset.act = "show-all";
+  showAll.textContent = t("panel.filterShowAll");
+  const hideAll = document.createElement("button");
+  hideAll.type = "button";
+  hideAll.dataset.act = "hide-all";
+  hideAll.textContent = t("panel.filterHideAll");
+  actions.append(showAll, hideAll);
+  menu.append(actions);
+
   for (const s of states) {
     const count = allIssues.filter((i) => i.state?.name === s.name).length;
-    const o = document.createElement("option");
-    o.value = s.name;
-    o.textContent = `${s.name} (${count})`;
-    sel.append(o);
+    const row = document.createElement("label");
+    row.className = "check-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !hiddenStates.has(s.name); // 체크 = 표시
+    cb.dataset.state = s.name;
+    const name = document.createElement("span");
+    name.className = "check-name";
+    name.textContent = s.name;
+    const cnt = document.createElement("span");
+    cnt.className = "check-count";
+    cnt.textContent = String(count);
+    row.append(cb, name, cnt);
+    menu.append(row);
   }
-  sel.value = stateFilter;
+}
+
+// 숨김 집합을 저장하고 목록을 다시 그린다(네트워크 재요청 없음).
+async function applyHiddenStates() {
+  await saveConfig({ list_hidden_states: [...hiddenStates] });
+  populateStateFilter(); // 개수/버튼 상태 갱신
+  renderList();
+  lastSignature = issuesSignature(allIssues); // 폴링이 같은 이유로 다시 그리지 않도록 갱신
 }
 
 // 우선순위 그룹 표시 순서: 긴급 → 높음 → 보통 → 낮음 → 없음(0).
@@ -558,13 +598,13 @@ function buildGroups(issues, groupBy) {
   });
 }
 
-// allIssues 를 stateFilter 로 걸러 선택한 그룹/정렬 기준으로 그린다(네트워크 재요청 없음).
+// allIssues 를 hiddenStates 로 걸러 선택한 그룹/정렬 기준으로 그린다(네트워크 재요청 없음).
 function renderList() {
   // 폴링 갱신 시 스크롤이 튀지 않도록 위치를 보존한다.
   const prevScroll = content.scrollTop;
   content.innerHTML = "";
   const showProject = !projectCfg?.projectId;
-  let filtered = stateFilter ? allIssues.filter((i) => i.state?.name === stateFilter) : allIssues;
+  let filtered = hiddenStates.size ? allIssues.filter((i) => !hiddenStates.has(i.state?.name)) : allIssues;
   // 검색어(번호/제목)로 추가 필터.
   const q = searchQuery.trim().toLowerCase();
   if (q) {
@@ -709,6 +749,7 @@ async function render() {
     const token = effectiveToken(config, projectCfg); // 프로젝트 전용 키 우선
     // 실효 설정: 프로젝트 핵심 실행값 오버라이드 + 액션 병합 + 실효 토큰(모달에도 이 토큰을 넘긴다).
     displayCfg = { ...applyProjectSettings(config, projectCfg), actions: mergeActions(config.actions, projectCfg?.actions) };
+    hiddenStates = new Set(Array.isArray(config.list_hidden_states) ? config.list_hidden_states : []); // 저장된 숨김 상태 복원
     populateDisplayMenu(); // 그룹/정렬 팝오버를 현재 값으로 채운다
     await refreshCurrentBranch();
 
@@ -769,8 +810,8 @@ async function render() {
 function emptyBox() {
   const q = searchQuery.trim();
   if (q) return el("div", { className: "empty muted" }, t("panel.searchNoResult", { q }));
-  if (stateFilter) {
-    return el("div", { className: "empty muted" }, t("panel.noStateIssues", { state: stateFilter }));
+  if (hiddenStates.size && allIssues.length) {
+    return el("div", { className: "empty muted" }, t("panel.noVisibleStates"));
   }
   // 프로젝트 연결됨 + 비어 있음
   if (projectCfg?.projectId) {
@@ -921,10 +962,35 @@ function bindSeg(id, apply) {
   });
 }
 
-// 상태 필터: 재요청 없이 클라이언트에서 즉시 필터링.
-document.getElementById("state-filter").addEventListener("change", (e) => {
-  stateFilter = e.target.value;
-  renderList();
+// 상태 필터(체크리스트 팝오버): 버튼으로 토글, 체크박스로 상태별 표시/숨김.
+const stateFilterBtn = document.getElementById("state-filter");
+const stateFilterMenu = document.getElementById("state-filter-menu");
+stateFilterBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  stateFilterMenu.hidden = !stateFilterMenu.hidden;
+});
+// 체크박스 토글 → 숨김 집합 갱신 후 즉시 필터링(재요청 없음).
+stateFilterMenu.addEventListener("change", (e) => {
+  const cb = e.target.closest("input[type=checkbox]");
+  if (!cb) return;
+  const name = cb.dataset.state;
+  if (cb.checked) hiddenStates.delete(name);
+  else hiddenStates.add(name);
+  applyHiddenStates();
+});
+// 모두 표시 / 모두 숨김 빠른 토글.
+stateFilterMenu.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  if (btn.dataset.act === "show-all") hiddenStates.clear();
+  else for (const s of distinctStates(allIssues)) hiddenStates.add(s.name);
+  applyHiddenStates();
+});
+// 바깥 클릭 시 팝오버 닫기.
+document.addEventListener("click", (e) => {
+  if (stateFilterMenu.hidden) return;
+  if (e.target === stateFilterBtn || stateFilterMenu.contains(e.target)) return;
+  stateFilterMenu.hidden = true;
 });
 
 // 이슈 검색: 입력 시 목록 필터, Enter 시 정확히 그 번호 이슈 열기.
