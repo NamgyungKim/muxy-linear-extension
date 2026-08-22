@@ -19,6 +19,7 @@ export default defineConfig({
         actions: resolve(__dirname, "modals/actions.html"),
         apikeys: resolve(__dirname, "modals/apikeys.html"),
         tabIssue: resolve(__dirname, "tab/issue.html"),
+        tabCreate: resolve(__dirname, "tab/create.html"),
       },
     },
   },

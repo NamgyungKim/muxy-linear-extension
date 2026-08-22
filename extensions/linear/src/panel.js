@@ -832,6 +832,18 @@ async function openSettings() {
 }
 
 async function openCreate() {
+  // KNK-88: 새 이슈 생성을 좁은 모달 대신 풀 탭 웹뷰로 연다(같은 create.js 재사용).
+  // 생성되면 create 쪽에서 탭을 닫고, 목록은 패널 폴링(3초)이 자동 갱신한다.
+  // extensionWebView 를 지원하지 않는 구버전 muxy 에서는 예외를 잡아 기존 모달로 폴백한다.
+  try {
+    await muxy.tabs.open({
+      kind: "extensionWebView",
+      extension: { id: "linear", tabType: "create", data: { mode: "tab" } },
+    });
+    return;
+  } catch (e) {
+    console.warn("[linear] 새 이슈를 탭으로 열기 실패 → 모달로 폴백:", e?.message || e);
+  }
   const result = await muxy.modal.openWebview({ entry: "modals/create.html", width: 460, height: 640 });
   if (result?.created) render();
 }
