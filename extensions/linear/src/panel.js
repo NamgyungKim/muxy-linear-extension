@@ -136,6 +136,60 @@ function initials(name) {
   return s.slice(0, 2).toUpperCase();
 }
 
+// 문자열을 안정적인 32bit 해시로. 담당자별 고정 색상을 뽑는 데 쓴다.
+function hashStr(str) {
+  let h = 0;
+  const s = String(str || "");
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
+// 담당자 식별자로 서로 겹치지 않는 배경색을 만든다. 색상환을 넓게 도는
+// 황금각(137.508°)으로 hue 를 흩어 인접 담당자끼리도 뚜렷이 구분되게 한다.
+function assigneeColor(key) {
+  const hue = Math.round((hashStr(key) * 137.508) % 360);
+  return `hsl(${hue} 58% 45%)`;
+}
+
+// 담당자 아바타 요소. 실제 아바타 이미지가 있으면 그 이미지를 쓰고,
+// 없으면 이니셜 + 담당자별 고유 배경색으로 폴백한다.
+function assigneeAvatar(assignee) {
+  const name = assignee?.displayName || assignee?.name;
+  const title = name ? t("panel.assigneeTitle", { name }) : t("panel.noAssignee");
+  if (!name) {
+    const av = el("span", { className: "assignee is-empty", title }, "–");
+    return av;
+  }
+  // 담당자 고유 키: id 를 우선하고 없으면 이름으로 폴백.
+  const key = assignee?.id || name;
+  if (assignee?.avatarUrl) {
+    const img = el("img", {
+      className: "assignee assignee-img",
+      src: assignee.avatarUrl,
+      alt: name,
+      title,
+      loading: "lazy",
+      referrerPolicy: "no-referrer",
+    });
+    // 이미지 로드 실패 시 이니셜 폴백으로 교체.
+    img.addEventListener("error", () => {
+      img.replaceWith(assigneeInitialAvatar(name, key, title));
+    });
+    return img;
+  }
+  return assigneeInitialAvatar(name, key, title);
+}
+
+// 이니셜 + 담당자별 고유 배경색 아바타.
+function assigneeInitialAvatar(name, key, title) {
+  const av = el("span", { className: "assignee", title }, initials(name));
+  av.style.background = assigneeColor(key);
+  return av;
+}
+
 function stateBadge(state) {
   const badge = el("span", { className: "badge" });
   const dot = el("span", { className: "dot" });
@@ -223,10 +277,7 @@ function issueRow(issue, { indent = false, showProject = false } = {}) {
   }
   // 담당자 아바타.
   if (displayCfg.list_show_assignee) {
-    const name = issue.assignee?.displayName || issue.assignee?.name;
-    const av = el("span", { className: "assignee", title: name ? t("panel.assigneeTitle", { name }) : t("panel.noAssignee") }, name ? initials(name) : "–");
-    if (!name) av.classList.add("is-empty");
-    top.append(av);
+    top.append(assigneeAvatar(issue.assignee));
   }
   // 현재 상태에 해당하는 액션 버튼들.
   // API 키와 에이전트가 모두 설정돼 있어야 액션을 쓸 수 있으므로, 없으면 버튼 자체를 숨긴다.
