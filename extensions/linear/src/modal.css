@@ -410,6 +410,19 @@ textarea.invalid {
 .md-tb-btn.is-active { background: var(--muxy-accent, #5e6ad2); color: #fff; }
 
 /* KNK-90: 진짜 위지위그(TipTap/ProseMirror) 본문 에디터 */
+/* KNK-95: 다른 입력칸(input/textarea)과 동일하게 테두리를 둘러 "입력 가능한 칸"임을 드러낸다. */
+.md-wysiwyg {
+  border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  background: var(--muxy-surface-solid, rgba(0, 0, 0, 0.2));
+  padding: 2px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+/* 포커스 시 강조 테두리(다른 입력칸과 동일한 시각 신호) */
+.md-wysiwyg:focus-within {
+  border-color: var(--muxy-accent, #5e6ad2);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--muxy-accent, #5e6ad2) 40%, transparent);
+}
 .md-wysiwyg .ProseMirror {
   outline: none;
   font-size: 14px;
@@ -417,11 +430,9 @@ textarea.invalid {
   min-height: 40px;
   padding: 6px 6px;
   border-radius: 6px;
-  transition: background 0.12s ease;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.md-wysiwyg .ProseMirror-focused { background: var(--muxy-surface, rgba(127, 127, 127, 0.08)); }
 .md-wysiwyg .ProseMirror > * + * { margin-top: 8px; }
 .md-wysiwyg .ProseMirror p { margin: 0; }
 .md-wysiwyg .ProseMirror h1 { font-size: 20px; font-weight: 600; line-height: 1.3; }
