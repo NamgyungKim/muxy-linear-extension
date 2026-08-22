@@ -1,6 +1,6 @@
 // "작업 시작" 흐름의 git/터미널 로직. 이슈 상세 모달에서 사용한다.
 
-import { renderPrompt } from "./config.js";
+import { renderPrompt, renderNameTemplate } from "./config.js";
 import { readProjectConfig, writeProjectConfig } from "./project.js";
 
 // 쉘 단일 인용 이스케이프.
@@ -64,6 +64,38 @@ async function ensureProjectConfigInWorktree(savedCfg) {
 // 브랜치명을 디렉토리 슬러그로 변환.
 function slug(branch) {
   return String(branch).replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-");
+}
+
+// 이름 규칙으로 만든 문자열을 git 브랜치명으로 안전하게 다듬는다.
+// 공백은 하이픈으로, ref 에 금지된 문자는 제거하고, 앞뒤 구분자를 정리한다.
+// (한글 등 유니코드 문자는 Linear 추천 브랜치명처럼 그대로 둔다.)
+function sanitizeBranchName(s) {
+  return String(s ?? "")
+    .normalize("NFC")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[~^:?*[\]\\]/g, "") // git ref 금지 문자
+    .replace(/\.{2,}/g, ".") // ".." 금지
+    .replace(/\/{2,}/g, "/") // 중복 슬래시 정리
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-/.]+|[-/.]+$/g, ""); // 앞뒤 구분자 제거
+}
+
+// worktree 폴더명 계산. 규칙(worktree_name_template)이 있으면 그걸 슬러그화해 쓰고,
+// 없으면 기존 방식("<저장소폴더>-<브랜치슬러그>")으로 폴백한다.
+function worktreeFolderName(config, { issue, branch, repo }) {
+  const tpl = config?.worktree_name_template;
+  if (tpl && String(tpl).trim()) {
+    const rendered = renderNameTemplate(tpl, {
+      identifier: issue?.identifier,
+      title: issue?.title,
+      branch,
+      repo,
+    });
+    const s = slug(rendered).replace(/^-+|-+$/g, "");
+    if (s) return s;
+  }
+  return `${repo}-${slug(branch)}`;
 }
 
 // 경로의 상위 디렉토리.
@@ -194,7 +226,7 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
     } else {
       const repo = await muxy.git.repoInfo();
       const parent = parentDir(repo.root); // worktree 는 항상 저장소 루트의 형제 위치에 만든다.
-      const wtPath = `${parent}/${baseName(repo.root)}-${slug(branch)}`;
+      const wtPath = `${parent}/${worktreeFolderName(config, { issue, branch, repo: baseName(repo.root) })}`;
       try {
         // 브랜치가 이미 있으면 새로 만들지 않고 그 브랜치로 worktree 를 붙인다.
         await muxy.git.worktree.add({ path: wtPath, branch, createBranch: !branchExists, baseBranch });
@@ -290,8 +322,21 @@ export function defaultFinishPrompt(config, issue, branch) {
   return renderPrompt(config.finish_prompt_template, { ...issue, branchName: branch });
 }
 
-// 이슈의 기본 브랜치명(Linear 추천값 우선, 없으면 fallback).
-export function defaultBranch(issue) {
+// 이슈의 기본 브랜치명.
+// 브랜치 이름 규칙(config.branch_name_template)이 있으면 그 규칙으로 만들고,
+// 없으면 Linear 추천값을 우선, 그것도 없으면 feature/<id>-<title> 로 폴백한다.
+export function defaultBranch(issue, config) {
+  const tpl = config?.branch_name_template;
+  if (tpl && String(tpl).trim()) {
+    const name = sanitizeBranchName(
+      renderNameTemplate(tpl, {
+        identifier: issue.identifier,
+        title: issue.title,
+        branch: issue.branchName,
+      })
+    );
+    if (name) return name;
+  }
   if (issue.branchName) return issue.branchName;
   const idSlug = String(issue.identifier || "issue").toLowerCase();
   const titleSlug = slug(String(issue.title || "").toLowerCase()).slice(0, 40);
