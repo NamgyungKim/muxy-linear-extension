@@ -206,11 +206,12 @@ export async function startWork({ issue, config, branch, baseBranch, useWorktree
           throw e;
         }
       }
-      // worktree.add 직후엔 muxy 의 worktree 레지스트리가 아직 갱신 전이라, 브랜치명으로
-      // switchTo 하면 "worktree not found" 가 난다(KNK-81: 첫 실행만 실패, 재실행은 성공).
-      // 방금 만든 worktree 를 레지스트리에 반영한 뒤, 브랜치명 대신 방금 만든 경로로 전환한다.
-      // (경로 식별자는 sibling git-workspace 확장의 검증된 방식이며 브랜치 NFC/NFD 문제도 피한다.)
-      await muxy.worktrees?.refresh?.().catch(() => {});
+      // worktree.add 직후엔 muxy 의 worktree 레지스트리가 아직 갱신 전이라, 곧바로 switchTo 하면
+      // "worktree not found" 가 난다(첫 실행만 실패, 재실행은 성공). 방금 만든 worktree 를
+      // 레지스트리에 반영한 뒤, 브랜치명 대신 방금 만든 경로로 전환한다(NFC/NFD 문제도 피한다).
+      // refresh 는 worktrees:write 권한이 필요하다(KNK-86: 권한 누락으로 refresh 가 no-op 되어
+      // 캐시가 stale 인 채 switchTo 가 실패했었다). sibling git-workspace 확장의 검증된 방식이다.
+      await muxy.worktrees.refresh().catch(() => {});
       await muxy.git.worktree.switchTo({ identifier: wtPath });
     }
     // 전환된 worktree 에 프로젝트 연결을 전파한다(없을 때만).

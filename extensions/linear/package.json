@@ -1,6 +1,6 @@
 {
   "name": "linear",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Muxy extension: browse your assigned Linear issues in a side panel and hand one to Claude Code — branch, worktree, and an issue-aware prompt — without leaving Muxy.",
@@ -26,6 +26,7 @@
       "git:write",
       "projects:read",
       "worktrees:read",
+      "worktrees:write",
       "files:read",
       "files:write",
       "notifications:write",
