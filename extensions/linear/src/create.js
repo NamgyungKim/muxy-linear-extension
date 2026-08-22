@@ -13,6 +13,7 @@ import {
   fetchProjectMilestones, fetchTeamTemplates,
 } from "./linear.js";
 import { setLang, t } from "./i18n.js";
+import { attachMarkdownEditor } from "./mdeditor.js";
 
 const muxy = window.muxy;
 const app = document.getElementById("app");
@@ -113,6 +114,9 @@ async function main() {
   const $ = (id) => document.getElementById(id);
   const errEl = $("err");
   const showErr = (m) => { errEl.textContent = m; errEl.hidden = !m; };
+
+  // KNK-90: 설명 입력칸에 "/" 슬래시 명령 메뉴 + 위지위그식 서식 툴바를 붙인다.
+  attachMarkdownEditor($("desc"));
 
   // ---- 중요도: 정적으로 채운다(기본값 없음). ------------------------------------
   (function initPriority() {
