@@ -13,7 +13,7 @@ import {
   fetchProjectMilestones, fetchTeamTemplates,
 } from "./linear.js";
 import { setLang, t } from "./i18n.js";
-import { attachMarkdownEditor } from "./mdeditor.js";
+import { mountMarkdownEditor } from "./mdwysiwyg.js";
 
 const muxy = window.muxy;
 const app = document.getElementById("app");
@@ -101,7 +101,7 @@ async function main() {
 
     <div class="field">
       <span class="label">${t("create.desc")}</span>
-      <textarea id="desc" placeholder="${t("create.descPh")}"></textarea>
+      <div id="desc"></div>
     </div>
 
     <p id="err" class="error" hidden></p>
@@ -115,8 +115,8 @@ async function main() {
   const errEl = $("err");
   const showErr = (m) => { errEl.textContent = m; errEl.hidden = !m; };
 
-  // KNK-90: 설명 입력칸에 "/" 슬래시 명령 메뉴 + 위지위그식 서식 툴바를 붙인다.
-  attachMarkdownEditor($("desc"));
+  // KNK-90: 설명칸을 진짜 위지위그(WYSIWYG) 마크다운 에디터로 마운트한다.
+  const descEditor = mountMarkdownEditor($("desc"), { placeholder: t("create.descPh") });
 
   // ---- 중요도: 정적으로 채운다(기본값 없음). ------------------------------------
   (function initPriority() {
@@ -269,7 +269,7 @@ async function main() {
   function applyTemplate(data) {
     // Linear templateData 는 이슈 기본값을 담고 있다. 존재/타입이 맞는 값만 반영한다.
     if (typeof data.title === "string" && !$("title").value.trim()) $("title").value = data.title;
-    if (typeof data.description === "string" && !$("desc").value.trim()) $("desc").value = data.description;
+    if (typeof data.description === "string" && !descEditor.getMarkdown().trim()) descEditor.setMarkdown(data.description);
     if (typeof data.priority === "number") {
       const sel = $("priority");
       if ([...sel.options].some((o) => o.value === String(data.priority))) sel.value = String(data.priority);
@@ -312,7 +312,7 @@ async function main() {
       const created = await createIssue(token, {
         teamId,
         title,
-        description: $("desc").value.trim(),
+        description: descEditor.getMarkdown().trim(),
         assigneeId: $("assignee").value || undefined,
         priority: Number($("priority").value),
         projectId: $("project").value || undefined,

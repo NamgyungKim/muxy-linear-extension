@@ -342,8 +342,6 @@ textarea.invalid {
   background: var(--muxy-surface, rgba(127, 127, 127, 0.1));
   border-color: transparent;
 }
-/* 본문 편집칸은 읽기(.md)와 같은 크기로 맞춰 전환 시 글자가 안 움직이게 한다. */
-#desc-input { font-size: 14px; line-height: 1.65; min-height: 40px; }
 /* 코멘트 입력칸: 비어 있을 때 최소 높이만 확보(플레이스홀더 보이게). */
 #comment { min-height: 40px; }
 
@@ -409,6 +407,81 @@ textarea.invalid {
 .md-slash-item.active .md-slash-icon { background: rgba(255, 255, 255, 0.22); }
 .md-slash-label { font-size: 12.5px; }
 .md-slash-empty { padding: 8px; font-size: 12px; opacity: 0.6; }
+.md-tb-btn.is-active { background: var(--muxy-accent, #5e6ad2); color: #fff; }
+
+/* KNK-90: 진짜 위지위그(TipTap/ProseMirror) 본문 에디터 */
+.md-wysiwyg .ProseMirror {
+  outline: none;
+  font-size: 14px;
+  line-height: 1.65;
+  min-height: 40px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.md-wysiwyg .ProseMirror-focused { background: var(--muxy-surface, rgba(127, 127, 127, 0.08)); }
+.md-wysiwyg .ProseMirror > * + * { margin-top: 8px; }
+.md-wysiwyg .ProseMirror p { margin: 0; }
+.md-wysiwyg .ProseMirror h1 { font-size: 20px; font-weight: 600; line-height: 1.3; }
+.md-wysiwyg .ProseMirror h2 { font-size: 17px; font-weight: 600; line-height: 1.3; }
+.md-wysiwyg .ProseMirror h3 { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.md-wysiwyg .ProseMirror ul, .md-wysiwyg .ProseMirror ol { padding-left: 20px; margin: 0; }
+.md-wysiwyg .ProseMirror a { color: var(--muxy-accent, #5e6ad2); }
+.md-wysiwyg .ProseMirror code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--muxy-surface, rgba(127, 127, 127, 0.18));
+}
+.md-wysiwyg .ProseMirror pre {
+  background: var(--muxy-surface, rgba(127, 127, 127, 0.18));
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.md-wysiwyg .ProseMirror pre code { background: none; padding: 0; }
+.md-wysiwyg .ProseMirror blockquote {
+  padding-left: 10px;
+  border-left: 3px solid var(--muxy-border, rgba(127, 127, 127, 0.4));
+  opacity: 0.85;
+  margin: 0;
+}
+.md-wysiwyg .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.4));
+  margin: 12px 0;
+}
+.md-wysiwyg .ProseMirror img { max-width: 100%; border-radius: 6px; }
+/* 체크박스 목록(To-do) */
+.md-wysiwyg ul[data-type="taskList"] { list-style: none; padding-left: 2px; }
+.md-wysiwyg ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
+.md-wysiwyg ul[data-type="taskList"] li > label { margin-top: 3px; flex: none; }
+.md-wysiwyg ul[data-type="taskList"] li > div { flex: 1; }
+/* 빈 에디터 플레이스홀더 */
+.md-wysiwyg .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* KNK-90: 링크/이미지 URL 을 받는 인라인 입력창(브라우저 blocking 다이얼로그 대체) */
+.md-inline-prompt {
+  position: fixed;
+  z-index: 1300;
+  width: 240px;
+  padding: 6px;
+  background: var(--muxy-surface-solid, #23262e);
+  border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.35));
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+.md-inline-prompt input { width: 100%; }
 
 /* 속성(상태/담당자/중요도/프로젝트) — 2열 그리드로 콤팩트하게 */
 .props { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
