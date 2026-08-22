@@ -104,6 +104,14 @@ async function main() {
     </div>
 
     <hr class="sep" />
+    <div class="row" style="margin-bottom:6px">
+      <h3 class="sec-title" style="margin:0">${t("issue.subIssues")}</h3>
+      <span class="spacer"></span>
+      <button id="add-sub" class="mini">${t("issue.addSubIssue")}</button>
+    </div>
+    <div id="sub-issues" class="sub-issues muted">${t("common.loading")}</div>
+
+    <hr class="sep" />
     <h3 class="sec-title">${t("issue.comments")}</h3>
     <div id="comments" class="comments muted">${t("common.loading")}</div>
     <div class="field" style="margin-top:10px">
@@ -505,6 +513,61 @@ async function main() {
     }
   }
 
+  // 하위 이슈: 상태 점 + 식별자 + 제목. 클릭하면 그 이슈를 새 탭으로 연다(모달 폴백).
+  function renderSubIssues(list) {
+    const box = $("sub-issues");
+    box.classList.remove("muted");
+    box.innerHTML = "";
+    if (!list.length) {
+      box.append(h(`<div class="muted">${t("issue.noSubIssues")}</div>`));
+      return;
+    }
+    for (const c of list) {
+      const row = h(`<button class="sub-issue" type="button"></button>`);
+      const dot = h(`<span class="sub-dot"></span>`);
+      dot.style.background = c.state?.color || "#8a8f98";
+      const id = h(`<span class="sub-id"></span>`);
+      id.textContent = c.identifier;
+      const title = h(`<span class="sub-title"></span>`);
+      title.textContent = c.title;
+      row.append(dot, id, title);
+      row.addEventListener("click", () => openChildIssue(c));
+      box.append(row);
+    }
+  }
+
+  // 하위 이슈 열기: 패널의 openIssue 와 동일하게 탭 웹뷰로 열고, 구버전에서는 URL 폴백.
+  async function openChildIssue(child) {
+    try {
+      await muxy.tabs.open({
+        kind: "extensionWebView",
+        extension: { id: "linear", tabType: "issue", data: { issue: child, config, mode: "tab" } },
+      });
+    } catch {
+      await openIssueUrl(child.url); // 탭 웹뷰 미지원 구버전 → 외부에서 열기
+    }
+  }
+
+  // 하위 이슈 추가: 부모 정보를 넘겨 생성 모달을 연다. 생성되면 목록을 다시 로드.
+  // API 키가 없으면 생성이 불가하므로 버튼을 숨긴다.
+  if (!canEdit) {
+    $("add-sub").style.display = "none";
+  } else {
+    $("add-sub").addEventListener("click", async () => {
+      const r = await muxy.modal.openWebview({
+        entry: "modals/create.html",
+        width: 460,
+        height: 640,
+        data: { parent: { id: issue.id, identifier: issue.identifier, teamKey: issue.team?.key } },
+      });
+      if (r?.created) {
+        changed = true;
+        toast(t("issue.subIssueAdded"), r.issue?.identifier || issue.identifier);
+        loadDetail(); // 새 하위 이슈를 목록에 반영
+      }
+    });
+  }
+
   let rawDescription = ""; // 본문 원문(마크다운) — 편집용
   function paintDesc() {
     const descEl = $("desc");
@@ -515,10 +578,11 @@ async function main() {
   }
   async function loadDetail() {
     try {
-      const { issue: detail, comments } = await fetchIssueDetail(config.api_token, issue.id);
+      const { issue: detail, comments, children } = await fetchIssueDetail(config.api_token, issue.id);
       rawDescription = detail?.description || "";
       paintDesc();
       renderComments(comments);
+      renderSubIssues(children);
       // 현재 이슈 라벨을 반영(라벨 칩 렌더에 사용).
       issue.labels = detail?.labels?.nodes || [];
       issueLabelIds = new Set(issue.labels.map((l) => l.id));
@@ -526,6 +590,7 @@ async function main() {
     } catch (e) {
       $("desc").textContent = "";
       $("comments").textContent = "";
+      $("sub-issues").textContent = "";
       showErr(e.message);
     }
   }

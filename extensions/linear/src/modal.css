@@ -401,3 +401,24 @@ button.danger:hover { background: color-mix(in srgb, #e5484d 15%, transparent); 
 .comment-when { font-size: 11px; opacity: 0.55; }
 .comment-body { font-size: 12.5px; }
 .comment-body p:last-child { margin-bottom: 0; }
+
+/* 하위 이슈 목록 */
+.sub-issues { display: flex; flex-direction: column; gap: 4px; }
+.sub-issue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border: 1px solid var(--muxy-border, rgba(127, 127, 127, 0.22));
+  border-radius: 8px;
+  background: var(--muxy-surface, rgba(127, 127, 127, 0.08));
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.sub-issue:hover { border-color: var(--muxy-accent, #5e6ad2); }
+.sub-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; }
+.sub-id { flex: none; font-size: 11px; opacity: 0.65; font-variant-numeric: tabular-nums; }
+.sub-title { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

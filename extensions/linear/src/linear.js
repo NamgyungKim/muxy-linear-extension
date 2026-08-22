@@ -170,7 +170,7 @@ export async function fetchIssueById(token, id) {
   return data.issue || null;
 }
 
-// 이슈 상세: 본문(description) + 코멘트 목록.
+// 이슈 상세: 본문(description) + 코멘트 목록 + 하위 이슈(children).
 export async function fetchIssueDetail(token, issueId) {
   const query = `
     query IssueDetail($id: String!) {
@@ -192,6 +192,9 @@ export async function fetchIssueDetail(token, issueId) {
             user { id name displayName avatarUrl }
           }
         }
+        children(first: 100) {
+          nodes { ${ISSUE_FIELDS} }
+        }
       }
     }`;
   const data = await gql(token, query, { id: issueId });
@@ -199,7 +202,11 @@ export async function fetchIssueDetail(token, issueId) {
   const comments = (issue?.comments?.nodes ?? [])
     .slice()
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  return { issue, comments };
+  // 하위 이슈: 생성 순서(createdAt)대로 정렬.
+  const children = (issue?.children?.nodes ?? [])
+    .slice()
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  return { issue, comments, children };
 }
 
 // 워크스페이스 전체의 워크플로우 상태(이름 기준 중복 제거, 타입순 정렬).
@@ -293,7 +300,7 @@ export async function resolveTeam(token, teamKey) {
 // 값이 비면(빈 문자열/undefined) input 에서 빼서 팀 기본값을 따르게 한다.
 export async function createIssue(token, {
   teamId, title, description,
-  assigneeId, priority, projectId, projectMilestoneId, labelIds, stateId,
+  assigneeId, priority, projectId, projectMilestoneId, labelIds, stateId, parentId,
 }) {
   const input = { teamId, title, description: description || null };
   if (assigneeId) input.assigneeId = assigneeId;
@@ -302,6 +309,7 @@ export async function createIssue(token, {
   if (projectMilestoneId) input.projectMilestoneId = projectMilestoneId;
   if (labelIds?.length) input.labelIds = labelIds;
   if (stateId) input.stateId = stateId;
+  if (parentId) input.parentId = parentId; // 부모 지정 시 하위 이슈로 생성
   const query = `
     mutation Create($input: IssueCreateInput!) {
       issueCreate(input: $input) {
