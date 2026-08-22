@@ -35,6 +35,18 @@ function toast(title, body) {
   muxy.toast?.({ title, body });
 }
 
+// 이슈 URL 을 Muxy 내장 브라우저가 아니라 외부에서 연다(macOS `open`).
+// Linear 데스크톱 앱이 설치돼 있으면 앱으로 열고, 없으면 기본 브라우저로 폴백한다.
+async function openIssueUrl(url) {
+  try {
+    const r = await muxy.exec(["open", "-a", "Linear", url]);
+    if (r?.exitCode === 0) return; // 앱에서 열림
+  } catch {
+    /* 앱 미설치 등 → 브라우저로 폴백 */
+  }
+  await muxy.exec(["open", url]); // 기본 브라우저
+}
+
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
@@ -569,9 +581,13 @@ async function main() {
     if (!asTab) muxy.modal.submitWebview({ changed });
   });
 
-  // Linear에서 열기(Muxy 내장 브라우저)
-  $("open-web").addEventListener("click", () => {
-    Promise.resolve(muxy.browser.open(issue.url)).catch((e) => showErr(e.message));
+  // Linear에서 열기: 내장 브라우저 대신 외부(앱 또는 기본 브라우저)에서 연다.
+  $("open-web").addEventListener("click", async () => {
+    try {
+      await openIssueUrl(issue.url);
+    } catch (e) {
+      showErr(e.message);
+    }
   });
 
   // 코멘트: 본문 편집처럼 깔끔한 인라인 필드. 내용에 맞춰 자동으로 늘어나고, 작성 중일
