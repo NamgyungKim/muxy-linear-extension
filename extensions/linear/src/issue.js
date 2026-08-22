@@ -11,7 +11,7 @@ import {
   updateIssueAssignee, updateIssuePriority, updateIssueLabels, updateIssueProject, deleteIssue,
 } from "./linear.js";
 import { renderMarkdown } from "./markdown.js";
-import { attachMarkdownEditor } from "./mdeditor.js";
+import { mountMarkdownEditor } from "./mdwysiwyg.js";
 import { listBaseBranchCandidates, defaultBranch } from "./git.js";
 import { applicableActions, runAction } from "./actions.js";
 import { setLang, t } from "./i18n.js";
@@ -27,6 +27,7 @@ const asTab = muxy.data?.mode === "tab";
 setLang(config?.language); // 패널이 넘긴 config 로 언어 적용
 
 let changed = false; // 목록 갱신이 필요한 변경이 있었는지
+let descEditor = null; // KNK-90: 본문 위지위그 에디터(싱글턴 탭 재렌더 시 정리용)
 
 function h(html) {
   const tpl = document.createElement("template");
@@ -61,6 +62,8 @@ async function main() {
     app.textContent = t("issue.cannotLoad");
     return;
   }
+  // 싱글턴 탭 재렌더 시 이전 에디터 인스턴스를 정리(플러그인/리스너 누수 방지).
+  if (descEditor) { try { descEditor.destroy(); } catch { /* 이미 정리됨 무시 */ } descEditor = null; }
 
   // 탭으로 열렸으면 탭 제목을 이슈 식별자로 바꾼다(구버전엔 setTitle 없음 → 무시).
   if (asTab) {
@@ -101,9 +104,8 @@ async function main() {
     </div>
 
     <div class="field">
-      <span class="label">${t("issue.body")} <span class="muted" style="font-weight:400;font-size:11px">${t("issue.clickToEdit")}</span></span>
-      <div id="desc" class="md doc muted" title="${t("issue.clickToEditTitle")}">${t("common.loading")}</div>
-      <textarea id="desc-input" class="seamless" hidden></textarea>
+      <span class="label">${t("issue.body")}</span>
+      <div id="desc"></div>
     </div>
 
     <hr class="sep" />
@@ -573,19 +575,40 @@ async function main() {
     });
   }
 
-  let rawDescription = ""; // 본문 원문(마크다운) — 편집용
-  function paintDesc() {
-    const descEl = $("desc");
-    descEl.classList.remove("muted");
-    descEl.innerHTML = rawDescription
-      ? renderMarkdown(rawDescription)
-      : `<span class="muted">${t("issue.emptyBodyClick")}</span>`;
+  // KNK-90: 본문을 진짜 위지위그(WYSIWYG) 에디터로 다룬다. 항상 편집 가능(권한 없으면
+  // 읽기 전용)하고, 포커스 아웃 시 자동 저장한다. "/" 슬래시 명령·서식 툴바 포함.
+  let rawDescription = ""; // 본문 원문(마크다운)
+  let descBaseline = "";   // 에디터 직렬화 기준값 — 서식 정규화로 인한 불필요한 저장 방지
+  let descSaving = false;
+  descEditor = mountMarkdownEditor($("desc"), {
+    placeholder: t("issue.emptyBodyClick"),
+    editable: canEdit,
+    toolbar: canEdit,
+    onBlur: canEdit ? saveDesc : undefined,
+  });
+  async function saveDesc(next) {
+    if (descSaving || next.trim() === descBaseline.trim()) return;
+    descSaving = true;
+    try {
+      await updateIssueDescription(config.api_token, issue.id, next);
+      rawDescription = next;
+      descBaseline = next;
+      changed = true;
+      toast(t("issue.bodySaved"), issue.identifier);
+    } catch (e) {
+      // 계정에 수정 권한이 없으면 여기로 온다.
+      showErr(t("issue.bodySaveFail", { msg: e.message }));
+    } finally {
+      descSaving = false;
+    }
   }
+
   async function loadDetail() {
     try {
       const { issue: detail, comments, children } = await fetchIssueDetail(config.api_token, issue.id);
       rawDescription = detail?.description || "";
-      paintDesc();
+      descEditor.setMarkdown(rawDescription);
+      descBaseline = descEditor.getMarkdown();
       renderComments(comments);
       renderSubIssues(children);
       // 현재 이슈 라벨을 반영(라벨 칩 렌더에 사용).
@@ -593,55 +616,12 @@ async function main() {
       issueLabelIds = new Set(issue.labels.map((l) => l.id));
       renderLabels();
     } catch (e) {
-      $("desc").textContent = "";
       $("comments").textContent = "";
       $("sub-issues").textContent = "";
       showErr(e.message);
     }
   }
   loadDetail();
-
-  // 본문: 노션처럼 클릭하면 바로 편집, 포커스 아웃 시 자동 저장.
-  let descSaving = false;
-  function startEditDesc() {
-    const ta = $("desc-input");
-    ta.value = rawDescription;
-    ta.hidden = false;
-    $("desc").hidden = true;
-    autoGrow(ta);
-    ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
-  }
-  function stopEditDesc() {
-    $("desc-input").hidden = true;
-    $("desc").hidden = false;
-  }
-  $("desc").addEventListener("click", startEditDesc);
-  // KNK-90: 본문 편집칸에 "/" 슬래시 명령 메뉴 + 위지위그식 서식 툴바를 붙인다.
-  attachMarkdownEditor($("desc-input"));
-  $("desc-input").addEventListener("input", () => autoGrow($("desc-input")));
-  $("desc-input").addEventListener("keydown", (e) => {
-    if (e.key === "Escape") stopEditDesc(); // 저장 없이 닫기
-  });
-  $("desc-input").addEventListener("blur", async () => {
-    if (descSaving) return;
-    const next = $("desc-input").value;
-    if (next === rawDescription) { stopEditDesc(); return; }
-    descSaving = true;
-    try {
-      await updateIssueDescription(config.api_token, issue.id, next);
-      rawDescription = next;
-      paintDesc();
-      stopEditDesc();
-      changed = true;
-      toast(t("issue.bodySaved"), issue.identifier);
-    } catch (e) {
-      // 계정에 수정 권한이 없으면 여기로 온다. 편집 상태 유지.
-      showErr(t("issue.bodySaveFail", { msg: e.message }));
-    } finally {
-      descSaving = false;
-    }
-  });
 
   // 액션 편집 모달 열기.
   // - 모달 컨텍스트: 저장됐으면 이슈 모달을 닫으며 changed 를 패널로 전달(목록 새로고침).
