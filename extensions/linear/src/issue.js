@@ -11,6 +11,7 @@ import {
   updateIssueAssignee, updateIssuePriority, updateIssueLabels, updateIssueProject, deleteIssue,
 } from "./linear.js";
 import { renderMarkdown } from "./markdown.js";
+import { attachMarkdownEditor } from "./mdeditor.js";
 import { listBaseBranchCandidates, defaultBranch } from "./git.js";
 import { applicableActions, runAction } from "./actions.js";
 import { setLang, t } from "./i18n.js";
@@ -616,6 +617,8 @@ async function main() {
     $("desc").hidden = false;
   }
   $("desc").addEventListener("click", startEditDesc);
+  // KNK-90: 본문 편집칸에 "/" 슬래시 명령 메뉴 + 위지위그식 서식 툴바를 붙인다.
+  attachMarkdownEditor($("desc-input"));
   $("desc-input").addEventListener("input", () => autoGrow($("desc-input")));
   $("desc-input").addEventListener("keydown", (e) => {
     if (e.key === "Escape") stopEditDesc(); // 저장 없이 닫기
