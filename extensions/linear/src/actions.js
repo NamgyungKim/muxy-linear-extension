@@ -2,6 +2,7 @@
 
 import { startWork, finishWork, defaultBranch } from "./git.js";
 import { renderPrompt } from "./config.js";
+import { buildAgentCommand } from "./agents.js";
 import { fetchTeamStates, updateIssueState } from "./linear.js";
 
 // 글로벌 + 프로젝트 액션을 합친 "실효 액션".
@@ -33,6 +34,12 @@ export async function runAction(action, issue, config, opts = {}) {
     const ok = await opts.confirmFn(action, prompt);
     if (!ok) return { cancelled: true };
   }
+
+  // 액션별 에이전트 설정(에이전트/모델/추론강도)을 실효 명령으로 편다(KNK-97).
+  // 값이 없으면 전역/프로젝트에서 상속한 config.agent_command 를 그대로 쓴다.
+  const agentCommand = buildAgentCommand(config.agent_command, action.agent);
+  const runConfig = agentCommand === config.agent_command ? config : { ...config, agent_command: agentCommand };
+  config = runConfig;
 
   let base = opts.base?.trim() || action.base?.trim() || config.default_base_branch;
   // "@current" = 지금 있는 브랜치를 베이스로.

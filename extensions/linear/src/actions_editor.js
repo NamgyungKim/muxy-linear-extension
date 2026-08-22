@@ -6,6 +6,7 @@ import { run } from "./fatal.js";
 import { loadConfig, saveConfig, effectiveToken } from "./config.js";
 import { fetchAllStates } from "./linear.js";
 import { readProjectConfig, writeProjectConfig } from "./project.js";
+import { AGENTS, capsFor } from "./agents.js";
 import { EMOJI, EMOJI_GROUPS, GROUP_LABELS } from "./emoji.js";
 import { setLang, t } from "./i18n.js";
 
@@ -13,6 +14,7 @@ const muxy = window.muxy;
 const app = document.getElementById("app");
 
 let actions = []; // 편집 중인 액션 배열
+let globalAgentCommand = "claude"; // 전역 에이전트 명령(액션이 "상속"일 때 모델/추론강도 후보 판별용)
 let stateList = []; // 워크스페이스 상태 목록 [{name,type}]
 let editorScope = "global"; // 현재 편집 스코프
 let globalById = new Map(); // 글로벌 액션 id→액션(프로젝트 스코프에서 기본값 표시용)
@@ -255,6 +257,74 @@ function openPromptBuilder(anchor, promptEl) {
   }, 0);
 }
 
+// 에이전트 설정 섹션(모델 · 추론강도) — 이 액션을 어떤 에이전트로, 어떤 모델/추론강도로 실행할지.
+// 값이 없으면 전역/프로젝트 에이전트를 그대로 상속한다(KNK-97).
+function agentSection(action) {
+  action.agent = action.agent || {};
+  const wrap = el("div", { className: "field" });
+
+  const lab = el("span", { className: "label" }, t("ae.agent"));
+  const help = el("span", { className: "help" }, "?");
+  attachTip(help, t("ae.agentHelp"));
+  lab.append(help);
+  wrap.append(lab);
+
+  // 에이전트 select: "(전역 에이전트 사용)" + 후보 목록. 빈 값 = 상속.
+  const agentSel = el("select");
+  agentSel.append(el("option", { value: "" }, t("ae.agentInherit", { v: globalAgentCommand || "—" })));
+  for (const a of AGENTS) {
+    const o = el("option", { value: a.v }, a.t);
+    if (action.agent.command === a.v) o.selected = true;
+    agentSel.append(o);
+  }
+  if (!action.agent.command) agentSel.value = "";
+
+  // 모델 입력(+ 에이전트별 자동완성 후보). 빈 값 = 에이전트 기본 모델.
+  const listId = `models-${action.id}`;
+  const datalist = el("datalist", { id: listId });
+  const modelInput = el("input", { type: "text", value: action.agent.model || "", placeholder: t("ae.modelPh") });
+  modelInput.setAttribute("list", listId);
+  modelInput.addEventListener("input", () => { action.agent.model = modelInput.value.trim(); });
+  const modelField = el("div", { className: "field", style: "margin-top:6px" }, [
+    el("span", { className: "label" }, t("ae.model")),
+    modelInput,
+    datalist,
+  ]);
+
+  // 추론강도 select(에이전트가 지원할 때만 노출).
+  const effortSel = el("select");
+  effortSel.addEventListener("change", () => { action.agent.effort = effortSel.value; });
+  const effortField = el("div", { className: "field", style: "margin-top:6px" }, [
+    el("span", { className: "label" }, t("ae.effort")),
+    effortSel,
+  ]);
+
+  // 현재 실효 에이전트에 맞춰 모델 후보 / 추론강도 옵션을 다시 채운다.
+  function refresh() {
+    const caps = capsFor(action.agent.command || globalAgentCommand);
+    datalist.innerHTML = "";
+    for (const m of caps?.models || []) datalist.append(el("option", { value: m }));
+    const efforts = caps?.efforts || [];
+    effortField.style.display = efforts.length ? "" : "none";
+    if (!efforts.length) action.agent.effort = ""; // 미지원 에이전트엔 잘못된 플래그를 남기지 않는다.
+    effortSel.innerHTML = "";
+    effortSel.append(el("option", { value: "" }, t("ae.effortDefault")));
+    for (const e of efforts) {
+      const o = el("option", { value: e }, e);
+      if (action.agent.effort === e) o.selected = true;
+      effortSel.append(o);
+    }
+  }
+  agentSel.addEventListener("change", () => {
+    action.agent.command = agentSel.value; // "" = 상속
+    refresh();
+  });
+  refresh();
+
+  wrap.append(agentSel, modelField, effortField);
+  return wrap;
+}
+
 // 액션 하나의 편집 카드
 function actionCard(action, index) {
   const card = el("div", { className: "act-card" });
@@ -328,6 +398,9 @@ function actionCard(action, index) {
   run.addEventListener("change", () => { action.run = run.value; });
   card.append(field(t("ae.runMode"), run));
 
+  // 에이전트 설정(모델 · 추론강도)
+  card.append(agentSection(action));
+
   // prompt + ✨ 프롬프트 만들기
   const prompt = el("textarea", { className: "prompt-input", placeholder: g ? (g.prompt || t("ae.none")) : t("ae.promptPh") });
   prompt.value = action.prompt || "";
@@ -371,6 +444,7 @@ function clone(x) {
 async function main() {
   const config = await loadConfig();
   setLang(config.language);
+  globalAgentCommand = config.agent_command || "claude"; // 상속 시 모델/추론강도 후보 판별용
   const projectCfg = await readProjectConfig(); // .linear.json 또는 null
   const token = effectiveToken(config, projectCfg); // 프로젝트 전용 키 우선
 
@@ -517,7 +591,11 @@ async function main() {
   document.getElementById("save").addEventListener("click", async () => {
     if (!validateRequired()) return;
     // 프롬프트는 선택값 — 공백만 남은 값은 빈 값으로 정규화(실행 시 공백 인자 전달 방지).
-    for (const a of actions) a.prompt = a.prompt?.trim() ? a.prompt : "";
+    // 에이전트 설정이 비어 있으면(모두 상속) 액션에서 아예 뺀다(설정을 가볍게 유지).
+    for (const a of actions) {
+      a.prompt = a.prompt?.trim() ? a.prompt : "";
+      if (a.agent && !a.agent.command && !a.agent.model && !a.agent.effort) delete a.agent;
+    }
     if (scope === "project") {
       await writeProjectConfig({ ...projectCfg, actions });
       muxy.toast?.({ title: t("ae.savedProject"), body: t("ae.savedProjectBody", { name: projectName, n: actions.length }) });
