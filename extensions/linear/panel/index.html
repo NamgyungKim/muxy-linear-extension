@@ -7,9 +7,8 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <select id="state-filter" class="state-filter" title="Status filter">
-          <option value="">All</option>
-        </select>
+        <button id="state-filter" class="icon-btn state-filter" title="Status filter">⚑</button>
+        <div id="state-filter-menu" class="popover popover--check" hidden></div>
         <span class="spacer"></span>
         <span id="topbar-spinner" class="topbar-spinner" hidden aria-label="Loading" title="Loading…"></span>
         <button id="display" class="icon-btn" title="Grouping / ordering">☰</button>
