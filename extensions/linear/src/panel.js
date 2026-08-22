@@ -6,7 +6,7 @@ import "./theme.css";
 import "./panel.css";
 import { installFatalHandler } from "./fatal.js";
 import { loadConfig, saveConfig, effectiveToken, applyProjectSettings } from "./config.js";
-import { fetchMyIssues, fetchProjectIssues, fetchIssueById } from "./linear.js";
+import { fetchMyIssues, fetchProjectIssues, fetchIssueById, fetchAllStates } from "./linear.js";
 import { readProjectConfig } from "./project.js";
 import { applicableActions, runAction, mergeActions } from "./actions.js";
 import { setLang, getLang, t } from "./i18n.js";
@@ -28,6 +28,7 @@ let currentIssueId = null; // 현재 git 브랜치에 해당하는 이슈 identi
 let projectCfg = null; // .linear.json 내용(연결 정보) 또는 null
 let displayCfg = {}; // 목록 표시 옵션(config 의 list_* 값)
 let allIssues = []; // 마지막으로 가져온 이슈 전체(상태 필터는 클라이언트에서 적용)
+let allStates = []; // 워크스페이스 전체 워크플로우 상태([{name,type}]). 필터에 이슈 없는 상태까지 모두 표기.
 let hiddenStates = new Set(); // 숨길 상태 이름 집합(비어 있으면 전체 표시). config.list_hidden_states 에 저장.
 let searchQuery = ""; // 이슈 검색어(번호/제목)
 const collapsed = new Set(); // 접힌 부모 이슈 id 집합(자식 숨김)
@@ -455,6 +456,18 @@ function distinctStates(issues) {
   });
 }
 
+// 필터에 표기할 상태 전체 = 워크스페이스 전체 상태(allStates) ∪ 현재 목록에 존재하는 상태.
+// 이슈가 하나도 없는 상태도 필터에 노출한다(KNK-99). allStates 가 아직 없으면 목록 기반으로 대체.
+function filterStates() {
+  const map = new Map(); // name -> { name, type }
+  for (const s of allStates) if (s?.name && !map.has(s.name)) map.set(s.name, { name: s.name, type: s.type ?? "unstarted" });
+  for (const s of distinctStates(allIssues)) if (!map.has(s.name)) map.set(s.name, s);
+  return [...map.values()].sort((a, b) => {
+    const d = (TYPE_ORDER[a.type] ?? 9) - (TYPE_ORDER[b.type] ?? 9);
+    return d !== 0 ? d : a.name.localeCompare(b.name);
+  });
+}
+
 // 숨긴 상태 중 지금 목록에 실제로 존재하는 것 개수(버튼 활성 표시/툴팁용).
 function activeHiddenCount(states) {
   return states.reduce((n, s) => n + (hiddenStates.has(s.name) ? 1 : 0), 0);
@@ -473,7 +486,7 @@ function updateStateFilterButton(states) {
 // 상단에 '모두 표시 / 모두 숨김' 빠른 토글을 둔다. 숨김 집합은 config 에 저장된다.
 function populateStateFilter() {
   const menu = document.getElementById("state-filter-menu");
-  const states = distinctStates(allIssues);
+  const states = filterStates();
   updateStateFilterButton(states);
   if (!menu) return;
   menu.innerHTML = "";
@@ -785,9 +798,14 @@ async function render() {
     renderSubbar();
 
     // 상태 필터를 클라이언트에서 걸 수 있도록 모든 상태의 이슈를 가져온다.
-    const { issues } = await fetchIssueList(token, config);
+    // 워크플로우 상태 전체도 함께 가져와, 이슈가 없는 상태까지 필터에 표기한다(KNK-99).
+    const [{ issues }, states] = await Promise.all([
+      fetchIssueList(token, config),
+      fetchAllStates(token).catch(() => []),
+    ]);
     allIssues = issues;
-    console.log(`[linear] who=${who} count=${issues.length}`);
+    allStates = states;
+    console.log(`[linear] who=${who} count=${issues.length} states=${states.length}`);
 
     populateStateFilter();
     // 직전에도 목록이 떠 있었고 데이터가 같으면 다시 그리지 않는다 → 목록 유지, 깜빡임 없음.
@@ -987,7 +1005,7 @@ stateFilterMenu.addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   if (btn.dataset.act === "show-all") hiddenStates.clear();
-  else for (const s of distinctStates(allIssues)) hiddenStates.add(s.name);
+  else for (const s of filterStates()) hiddenStates.add(s.name);
   applyHiddenStates();
 });
 // 바깥 클릭 시 팝오버 닫기.
