@@ -10,7 +10,7 @@ import { readProjectConfig } from "./project.js";
 import {
   resolveTeam, createIssue,
   fetchTeamMembers, fetchTeamProjects, fetchTeamLabels,
-  fetchProjectMilestones, fetchTeamTemplates,
+  fetchProjectMilestones, fetchTeamTemplates, fetchTeamStates,
 } from "./linear.js";
 import { setLang, t } from "./i18n.js";
 import { mountMarkdownEditor } from "./mdwysiwyg.js";
@@ -76,6 +76,10 @@ async function main() {
     </div>
 
     <div class="props">
+      <div class="field">
+        <span class="label">${t("issue.state")}</span>
+        <select id="state"><option>${t("common.loading")}</option></select>
+      </div>
       <div class="field">
         <span class="label">${t("issue.assignee")}</span>
         <select id="assignee"><option>${t("common.loading")}</option></select>
@@ -202,6 +206,7 @@ async function main() {
   let templates = [];
   async function loadTeamData(teamKey) {
     // 로딩 표시
+    $("state").innerHTML = `<option>${t("common.loading")}</option>`;
     $("assignee").innerHTML = `<option>${t("common.loading")}</option>`;
     $("project").innerHTML = `<option>${t("common.loading")}</option>`;
     $("labels").textContent = t("common.loading");
@@ -211,12 +216,21 @@ async function main() {
       teamId = team.id;
       $("team").value = team.key; // 정규화된 키 반영
 
-      const [members, projects, labels, tpls] = await Promise.all([
+      const [members, projects, labels, tpls, states] = await Promise.all([
         fetchTeamMembers(token, teamId).catch(() => []),
         fetchTeamProjects(token, teamId).catch(() => []),
         fetchTeamLabels(token, teamId).catch(() => []),
         fetchTeamTemplates(token, teamId).catch(() => []),
+        fetchTeamStates(token, teamId).catch(() => []),
       ]);
+
+      // 상태: 새 이슈의 기본 상태로 팀의 첫 'unstarted'(예: Todo)를 미리 고른다.
+      // 없으면 'backlog', 그것도 없으면 첫 상태를 쓴다.
+      const defaultState = states.find((s) => s.type === "unstarted")
+        ?? states.find((s) => s.type === "backlog") ?? states[0];
+      fillSelect($("state"), states.map((s) => ({ value: s.id, label: s.name })), {
+        selected: defaultState?.id || "",
+      });
 
       fillSelect($("assignee"), members.map((m) => ({ value: m.id, label: m.displayName || m.name })), {
         noneLabel: t("issue.unassigned"),
@@ -240,6 +254,7 @@ async function main() {
       });
     } catch (e) {
       showErr(e.message);
+      $("state").innerHTML = `<option>—</option>`;
       $("assignee").innerHTML = `<option>—</option>`;
       $("project").innerHTML = `<option>—</option>`;
       $("labels").textContent = t("issue.noLabels");
@@ -273,6 +288,10 @@ async function main() {
     if (typeof data.priority === "number") {
       const sel = $("priority");
       if ([...sel.options].some((o) => o.value === String(data.priority))) sel.value = String(data.priority);
+    }
+    if (data.stateId) {
+      const sel = $("state");
+      if ([...sel.options].some((o) => o.value === data.stateId)) sel.value = data.stateId;
     }
     if (data.assigneeId) {
       const sel = $("assignee");
@@ -318,6 +337,7 @@ async function main() {
         projectId: $("project").value || undefined,
         projectMilestoneId: $("milestone").value || undefined,
         labelIds: [...selectedLabels],
+        stateId: $("state").value || undefined,
         parentId: parent?.id || undefined,
       });
       muxy.toast?.({ title: t("create.created"), body: `${created.identifier}` });
