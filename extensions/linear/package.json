@@ -54,6 +54,11 @@
         "id": "issue",
         "title": "Linear",
         "entry": "tab/issue.html"
+      },
+      {
+        "id": "create",
+        "title": "Linear",
+        "entry": "tab/create.html"
       }
     ],
     "commands": [
@@ -69,10 +74,8 @@
         "id": "create-issue",
         "title": "Linear: New Issue",
         "action": {
-          "kind": "openModal",
-          "entry": "modals/create.html",
-          "width": 460,
-          "height": 640
+          "kind": "openTab",
+          "tabType": "create"
         }
       },
       {

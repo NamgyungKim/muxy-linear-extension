@@ -19,6 +19,11 @@ const app = document.getElementById("app");
 // 이슈 상세에서 "하위 이슈 추가"로 열리면 부모 정보가 넘어온다({ id, identifier, teamKey }).
 // 이 경우 생성 시 parentId 를 지정해 하위 이슈로 만든다.
 const parent = muxy.data?.parent || null;
+// KNK-88: 이슈 상세(issue.js)처럼 새 이슈 생성도 좁은 모달 대신 풀 탭 웹뷰로 연다.
+// 같은 create.js 를 모달(modals/create.html)과 탭(tab/create.html) 양쪽에서 재사용하며,
+// 탭은 <body class="tab"> 로 구분한다. 탭에는 닫을 모달(submitWebview)이 없으므로
+// 성공 시 탭을 닫고, 패널 목록은 폴링(3초)으로 자동 갱신된다.
+const asTab = document.body.classList.contains("tab");
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -43,6 +48,11 @@ async function main() {
   }
   // 부모가 있으면 부모의 팀을 우선한다(하위 이슈는 같은 팀에서 만드는 게 일반적).
   const defaultTeam = parent?.teamKey || projectCfg?.teamKey || config.team_key;
+
+  // 탭으로 열렸으면 탭 제목을 붙인다(구버전엔 setTitle 없음 → 무시).
+  if (asTab) {
+    try { muxy.tabs?.setTitle?.(parent ? t("create.subTitle") : t("create.title")); } catch { /* setTitle 미지원 무시 */ }
+  }
 
   app.innerHTML = `
     <h2 class="m-title">${parent ? t("create.subTitle") : t("create.title")}</h2>
@@ -207,8 +217,10 @@ async function main() {
       fillSelect($("assignee"), members.map((m) => ({ value: m.id, label: m.displayName || m.name })), {
         noneLabel: t("issue.unassigned"),
       });
+      // 기본값: 지금 보고 있는(연결된) 프로젝트를 미리 선택한다. 목록에 없으면(다른 팀 등) 미선택.
       fillSelect($("project"), projects.map((p) => ({ value: p.id, label: p.name })), {
         noneLabel: t("issue.noProject"),
+        selected: projectCfg?.projectId || "",
       });
       await loadMilestones($("project").value);
 
@@ -305,7 +317,10 @@ async function main() {
         parentId: parent?.id || undefined,
       });
       muxy.toast?.({ title: t("create.created"), body: `${created.identifier}` });
-      muxy.modal.submitWebview({ created: true, issue: created });
+      // 탭: 생성 후 탭을 닫는다(패널 목록은 폴링으로 자동 갱신).
+      // 모달: submitWebview 로 결과를 패널에 전달하며 닫는다(패널이 render() 로 갱신).
+      if (asTab) muxy.lifecycle.close();
+      else muxy.modal.submitWebview({ created: true, issue: created });
     } catch (e) {
       showErr(e.message);
       $("create").disabled = false;
