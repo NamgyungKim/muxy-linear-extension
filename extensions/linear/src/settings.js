@@ -211,6 +211,18 @@ async function main() {
       </div>
 
       <div class="field">
+        <span class="label">${t("set.branchNameTpl")}</span>
+        <input type="text" id="branch_name_template" value="${escapeHtml(config.branch_name_template || "")}" placeholder="${escapeHtml(t("set.branchNameTplPh"))}" />
+        <div class="hint">${t("set.branchNameTplHint")}</div>
+      </div>
+
+      <div class="field">
+        <span class="label">${t("set.worktreeNameTpl")}</span>
+        <input type="text" id="worktree_name_template" value="${escapeHtml(config.worktree_name_template || "")}" placeholder="${escapeHtml(t("set.worktreeNameTplPh"))}" />
+        <div class="hint">${t("set.worktreeNameTplHint")}</div>
+      </div>
+
+      <div class="field">
         <span class="label">${t("set.agent")}</span>
         <select id="agent_select"></select>
         <input type="text" id="agent_command" value="${escapeHtml(config.agent_command)}" placeholder="${t("set.agentPh")}" style="margin-top:6px" />
@@ -353,6 +365,18 @@ async function main() {
       <div class="field">
         <span class="label">${t("set.baseBranch")}</span>
         <select id="p_base"></select>
+      </div>
+
+      <div class="field">
+        <span class="label">${t("set.branchNameTpl")}</span>
+        <input type="text" id="p_branch_name_template" value="${escapeHtml(s.branch_name_template || "")}" placeholder="${escapeHtml(inheritedText(config.branch_name_template))}" />
+        <div class="hint">${t("set.branchNameTplHint")}</div>
+      </div>
+
+      <div class="field">
+        <span class="label">${t("set.worktreeNameTpl")}</span>
+        <input type="text" id="p_worktree_name_template" value="${escapeHtml(s.worktree_name_template || "")}" placeholder="${escapeHtml(inheritedText(config.worktree_name_template))}" />
+        <div class="hint">${t("set.worktreeNameTplHint")}</div>
       </div>
 
       <div class="field">
@@ -533,6 +557,8 @@ async function main() {
       api_token: activeToken, // 하위 호환: 활성 키를 단일 값에도 반영
       team_key: val("team_key"),
       default_base_branch: val("default_base_branch") || "develop",
+      branch_name_template: val("branch_name_template"),
+      worktree_name_template: val("worktree_name_template"),
       agent_command: val("agent_command") || "claude",
       list_show_state: checked("list_show_state"),
       list_show_priority: checked("list_show_priority"),
@@ -573,8 +599,12 @@ async function main() {
     const settings = {};
     const base = val("p_base");
     const agent = val("p_agent_command");
+    const branchTpl = val("p_branch_name_template");
+    const worktreeTpl = val("p_worktree_name_template");
     if (base) settings.default_base_branch = base;
     if (agent) settings.agent_command = agent;
+    if (branchTpl) settings.branch_name_template = branchTpl;
+    if (worktreeTpl) settings.worktree_name_template = worktreeTpl;
     if (Object.keys(settings).length) cfg.settings = settings;
     else delete cfg.settings;
 

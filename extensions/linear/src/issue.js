@@ -190,7 +190,7 @@ async function main() {
   });
 
   // 브랜치 기본값
-  $("branch").value = defaultBranch(issue);
+  $("branch").value = defaultBranch(issue, config);
 
   // 베이스 브랜치 후보 채우기
   listBaseBranchCandidates().then((branches) => {

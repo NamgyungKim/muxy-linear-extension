@@ -18,6 +18,12 @@ export const CONFIG_DEFAULTS = {
   team_key: "",
   // 브랜치를 분기할 기본 베이스 브랜치.
   default_base_branch: "develop",
+  // 브랜치 이름 규칙(빈 값 = Linear 추천 브랜치명 사용).
+  // 사용 가능한 플레이스홀더: {identifier} {title} {branch}
+  branch_name_template: "",
+  // worktree 폴더 이름 규칙(빈 값 = "<저장소폴더>-<브랜치슬러그>").
+  // 사용 가능한 플레이스홀더: {identifier} {title} {branch} {repo}
+  worktree_name_template: "",
   // 작업 시작 시 기본으로 worktree 를 만들지 여부.
   use_worktree: true,
   // 이슈 클릭 시 터미널에서 실행할 에이전트 CLI.
@@ -137,7 +143,7 @@ export function effectiveToken(config, projectCfg) {
 export function applyProjectSettings(config, projectCfg) {
   const eff = { ...config, api_token: effectiveToken(config, projectCfg) };
   const s = projectCfg?.settings || {};
-  for (const k of ["default_base_branch", "agent_command"]) {
+  for (const k of ["default_base_branch", "agent_command", "branch_name_template", "worktree_name_template"]) {
     const v = s[k];
     if (v !== undefined && v !== null && String(v).trim() !== "") eff[k] = v;
   }
@@ -152,4 +158,14 @@ export function renderPrompt(template, issue) {
     .replaceAll("{branch}", issue.branchName ?? "")
     .replaceAll("{url}", issue.url ?? "")
     .replaceAll("{description}", issue.description ?? "");
+}
+
+// 이름 규칙(브랜치명 / worktree 폴더명) 템플릿에 값을 채워 렌더링한다.
+// 프롬프트와 달리 {repo}(저장소 폴더명)도 지원한다. 브랜치/폴더로 안전화하는 건 호출부(git.js) 담당.
+export function renderNameTemplate(template, vars = {}) {
+  return String(template ?? "")
+    .replaceAll("{identifier}", vars.identifier ?? "")
+    .replaceAll("{title}", vars.title ?? "")
+    .replaceAll("{branch}", vars.branch ?? "")
+    .replaceAll("{repo}", vars.repo ?? "");
 }

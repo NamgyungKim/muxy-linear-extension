@@ -26,7 +26,7 @@ export function applicableActions(actions, issue) {
 // opts.branch → 사용할 브랜치명(없으면 이슈 기본값)
 // 반환: { ok } | { cancelled }
 export async function runAction(action, issue, config, opts = {}) {
-  const branch = opts.branch?.trim() || defaultBranch(issue);
+  const branch = opts.branch?.trim() || defaultBranch(issue, config);
   const prompt = renderPrompt(action.prompt, { ...issue, branchName: branch });
 
   if (action.confirm && opts.confirmFn) {
