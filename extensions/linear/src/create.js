@@ -9,7 +9,7 @@ import { loadConfig, effectiveToken, applyProjectSettings } from "./config.js";
 import { mergeActions } from "./actions.js";
 import { readProjectConfig } from "./project.js";
 import {
-  resolveTeam, createIssue,
+  resolveTeam, createIssue, fetchIssueById,
   fetchTeamMembers, fetchTeamProjects, fetchTeamLabels,
   fetchProjectMilestones, fetchTeamTemplates, fetchTeamStates,
 } from "./linear.js";
@@ -343,9 +343,23 @@ async function main() {
       });
       muxy.toast?.({ title: t("create.created"), body: `${created.identifier}` });
       // KNK-98: 생성 후 방금 만든 이슈의 상세 페이지로 바로 이동한다.
-      // issue.js 는 초기 렌더에 id/identifier/title/url 만 있으면 되고(나머지는
-      // loadDetail 이 id 로 다시 조회), 여기서 제목은 폼 값으로 채워 넘긴다.
-      const openedIssue = { ...created, title };
+      // KNK-100: issue.js 는 초기 렌더에서 issue.team.id 등 전체 필드를 동기적으로
+      // 참조하므로, createIssue 가 돌려주는 {id, identifier, url} 만으로는
+      // "undefined is not an object (evaluating 'issue.team.id')" 오류가 난다.
+      // 생성이 확실히 완료된 뒤 전체 이슈를 다시 조회해(팀 포함) 넘긴다. 재조회가
+      // 실패하면 최소 필드로 폴백하되, 상세 열기는 건너뛰어 오류 화면을 피한다.
+      let openedIssue = null;
+      try {
+        openedIssue = await fetchIssueById(token, created.id);
+      } catch (e) {
+        console.warn("[linear] 생성 후 이슈 재조회 실패:", e?.message || e);
+      }
+      if (!openedIssue) {
+        // 재조회 실패 시: 상세를 열면 team 누락으로 깨지므로 탭/모달만 정리한다.
+        if (asTab) muxy.lifecycle.close();
+        else muxy.modal.submitWebview({ created: true });
+        return;
+      }
       // 탭: 이슈 상세 탭(싱글턴)을 열고, 현재 생성 탭을 닫는다.
       //     extensionWebView 미지원 구버전 muxy 는 예외를 잡아 그냥 탭만 닫는다.
       // 모달: submitWebview 로 결과(열 이슈 포함)를 패널에 전달 → 패널이 상세를 연다.
