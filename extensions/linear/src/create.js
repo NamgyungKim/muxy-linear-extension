@@ -16,6 +16,9 @@ import { setLang, t } from "./i18n.js";
 
 const muxy = window.muxy;
 const app = document.getElementById("app");
+// 이슈 상세에서 "하위 이슈 추가"로 열리면 부모 정보가 넘어온다({ id, identifier, teamKey }).
+// 이 경우 생성 시 parentId 를 지정해 하위 이슈로 만든다.
+const parent = muxy.data?.parent || null;
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -38,10 +41,12 @@ async function main() {
     document.getElementById("close").addEventListener("click", () => muxy.lifecycle.close());
     return;
   }
-  const defaultTeam = projectCfg?.teamKey || config.team_key;
+  // 부모가 있으면 부모의 팀을 우선한다(하위 이슈는 같은 팀에서 만드는 게 일반적).
+  const defaultTeam = parent?.teamKey || projectCfg?.teamKey || config.team_key;
 
   app.innerHTML = `
-    <h2 class="m-title">${t("create.title")}</h2>
+    <h2 class="m-title">${parent ? t("create.subTitle") : t("create.title")}</h2>
+    ${parent ? `<div class="issue-meta"><span class="chip">${t("create.parentOf", { id: escapeHtml(parent.identifier) })}</span></div>` : ""}
 
     <div class="props">
       <div class="field">
@@ -297,6 +302,7 @@ async function main() {
         projectId: $("project").value || undefined,
         projectMilestoneId: $("milestone").value || undefined,
         labelIds: [...selectedLabels],
+        parentId: parent?.id || undefined,
       });
       muxy.toast?.({ title: t("create.created"), body: `${created.identifier}` });
       muxy.modal.submitWebview({ created: true, issue: created });
