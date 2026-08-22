@@ -17,7 +17,9 @@ import { setLang, t } from "./i18n.js";
 
 const muxy = window.muxy;
 const app = document.getElementById("app");
-const { issue, config } = muxy.data || {};
+// KNK-89: 싱글턴 탭이 다른 이슈로 재사용되면 onDataChange 로 새 데이터가 들어온다.
+// 그때 아래 두 값을 갈아끼우고 다시 렌더하므로 const 가 아니라 let 으로 둔다.
+let { issue, config } = muxy.data || {};
 // 같은 컴포넌트를 모달(muxy.modal.openWebview) 과 탭(muxy.tabs.open extensionWebView)
 // 양쪽에서 재사용한다. 탭으로 열리면 data.mode === "tab" 로 구분한다.
 const asTab = muxy.data?.mode === "tab";
@@ -541,7 +543,9 @@ async function main() {
     try {
       await muxy.tabs.open({
         kind: "extensionWebView",
-        extension: { id: "linear", tabType: "issue", data: { issue: child, config, mode: "tab" } },
+        // KNK-89: singleton 으로 열어 이미 떠 있는 이슈 탭을 재사용한다(하위 이슈 클릭마다
+        // 새 탭이 쌓이지 않게). 재사용되면 이 탭의 onDataChange 로 child 데이터가 들어온다.
+        extension: { id: "linear", tabType: "issue", singleton: true, data: { issue: child, config, mode: "tab" } },
       });
     } catch {
       await openIssueUrl(child.url); // 탭 웹뷰 미지원 구버전 → 외부에서 열기
@@ -699,3 +703,18 @@ async function main() {
 }
 
 run(main);
+
+// KNK-89: 싱글턴 이슈 탭 재사용. 패널이나 하위 이슈에서 다른 이슈를 열면 새 탭 대신
+// 이미 떠 있는 이 탭으로 데이터가 들어온다. 새 이슈로 전체를 다시 렌더해 탭이 계속
+// 쌓이지 않게 한다. (구버전 muxy 는 onDataChange 가 없으므로 옵셔널 체이닝으로 무시.)
+if (asTab) {
+  muxy.onDataChange?.((data) => {
+    if (!data?.issue) return;
+    issue = data.issue;
+    config = data.config || config;
+    setLang(config?.language);
+    changed = false;
+    window.scrollTo?.(0, 0);
+    main().catch((e) => console.error("[linear] onDataChange 재렌더 실패:", e?.message || e));
+  });
+}
