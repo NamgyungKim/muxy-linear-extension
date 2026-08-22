@@ -782,7 +782,9 @@ async function openIssue(issue) {
   try {
     await muxy.tabs.open({
       kind: "extensionWebView",
-      extension: { id: "linear", tabType: "issue", data: { issue, config: eff, mode: "tab" } },
+      // KNK-89: singleton 으로 열어 이미 떠 있는 이슈 탭을 재사용한다(이슈를 클릭할 때마다
+      // 새 탭이 쌓여 불편하던 문제 해결). 재사용되면 그 탭이 onDataChange 로 새 이슈를 렌더한다.
+      extension: { id: "linear", tabType: "issue", singleton: true, data: { issue, config: eff, mode: "tab" } },
     });
     return;
   } catch (e) {
