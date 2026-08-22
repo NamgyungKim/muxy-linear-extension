@@ -8,6 +8,7 @@ import { run } from "./fatal.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { fetchTeams, fetchTeamProjects, fetchProjectByName } from "./linear.js";
 import { readProjectConfig, writeProjectConfig, clearProjectConfig } from "./project.js";
+import { AGENTS } from "./agents.js";
 import { setLang, t, LANGS } from "./i18n.js";
 
 const muxy = window.muxy;
@@ -16,17 +17,6 @@ const app = document.getElementById("app");
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
-
-// 자주 쓰는 에이전트 후보 + 직접 입력.
-const AGENTS = [
-  { v: "claude", t: "Claude Code (claude)" },
-  { v: "codex", t: "OpenAI Codex (codex)" },
-  { v: "gemini", t: "Gemini CLI (gemini)" },
-  { v: "cursor-agent", t: "Cursor Agent (cursor-agent)" },
-  { v: "aider", t: "Aider (aider)" },
-  { v: "grok", t: "Grok (grok)" },
-  { v: "droid", t: "Factory Droid (droid)" },
-];
 
 async function main() {
   const config = await loadConfig();

@@ -66,6 +66,7 @@ export const CONFIG_DEFAULTS = {
   //  - prompt: 터미널에서 실행할 에이전트 프롬프트(플레이스홀더 사용 가능)
   //  - toState: 실행 후 바꿀 상태 — 상태 이름 또는 타입(started/unstarted/backlog/completed/canceled), 빈 값 = 변경 안 함
   //  - confirm: 실행 전 확인 창 표시 여부
+  //  - agent: 이 액션 전용 에이전트 설정 { command, model, effort }(빈/생략 = 전역 상속) — KNK-97
   actions: [
     {
       id: "start",
