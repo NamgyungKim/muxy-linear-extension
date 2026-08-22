@@ -205,8 +205,15 @@
   justify-content: center;
   font-size: 9px;
   font-weight: 700;
+  /* 배경색은 담당자별로 panel.js 에서 인라인 지정. 지정 전 기본값만 둔다. */
   background: var(--muxy-accent, #5e6ad2);
   color: #fff;
+  overflow: hidden;
+}
+/* 실제 아바타 이미지 */
+.assignee.assignee-img {
+  object-fit: cover;
+  background: var(--muxy-surface-solid, rgba(127, 127, 127, 0.2));
 }
 .assignee.is-empty {
   background: var(--muxy-surface-solid, rgba(127, 127, 127, 0.3));
