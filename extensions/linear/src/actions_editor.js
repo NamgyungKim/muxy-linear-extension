@@ -14,7 +14,6 @@ const app = document.getElementById("app");
 
 let actions = []; // 편집 중인 액션 배열
 let stateList = []; // 워크스페이스 상태 목록 [{name,type}]
-let branchList = []; // 저장소 브랜치 목록(베이스 선택용)
 let editorScope = "global"; // 현재 편집 스코프
 let globalById = new Map(); // 글로벌 액션 id→액션(프로젝트 스코프에서 기본값 표시용)
 const TYPE_KEYS = ["started", "unstarted", "backlog", "completed", "canceled"];
@@ -112,7 +111,7 @@ function el(tag, props = {}, children = []) {
 
 // 새 액션 기본 골격
 function blankAction() {
-  return { id: `a${Date.now()}`, label: t("ae.newAction"), icon: "", appliesTo: [], run: "current", base: "", prompt: "", toState: "", confirm: false };
+  return { id: `a${Date.now()}`, label: t("ae.newAction"), icon: "", appliesTo: [], run: "current", prompt: "", toState: "", confirm: false };
 }
 
 // "표시할 상태" 컨트롤: 단일 select(모든 상태 / 특정 상태). 상태를 못 불러오면 텍스트 폴백.
@@ -171,36 +170,6 @@ function toStateControl(action) {
     sel.append(o);
   }
   sel.addEventListener("change", () => { action.toState = sel.value; });
-  return sel;
-}
-
-// "베이스 브랜치" 컨트롤: 기본/현재 브랜치/실제 브랜치 목록(없으면 텍스트 폴백).
-function baseControl(action) {
-  const cur = action.base || "";
-  if (!branchList.length) {
-    const input = el("input", { type: "text", value: cur, placeholder: t("ae.baseEmptyPh") });
-    input.addEventListener("input", () => { action.base = input.value; });
-    return input;
-  }
-  const sel = el("select");
-  sel.append(el("option", { value: "" }, t("ae.defaultBase")));
-  sel.append(el("option", { value: "@current" }, t("ae.currentBranchHere")));
-  const isSpecial = cur === "" || cur === "@current";
-  if (cur && !isSpecial && !branchList.includes(cur)) {
-    const o = el("option", { value: cur }, t("ae.customInput", { v: cur }));
-    o.selected = true;
-    sel.append(o);
-  }
-  const g = el("optgroup", { label: t("ae.branch") });
-  for (const b of branchList) {
-    const o = el("option", { value: b }, b);
-    if (cur === b) o.selected = true;
-    g.append(o);
-  }
-  sel.append(g);
-  if (cur === "@current") sel.value = "@current";
-  else if (cur === "") sel.value = "";
-  sel.addEventListener("change", () => { action.base = sel.value; });
   return sel;
 }
 
@@ -309,7 +278,6 @@ function actionCard(action, index) {
     const summary = t("ae.globalSummary", {
       applies: g.appliesTo?.length ? g.appliesTo.join(", ") : t("ae.allStates"),
       run: runLabel(g.run) ?? g.run,
-      base: g.base || t("ae.default"),
       prompt: g.prompt || t("ae.none"),
       toState: g.toState || t("ae.noChange"),
     });
@@ -359,9 +327,6 @@ function actionCard(action, index) {
   }
   run.addEventListener("change", () => { action.run = run.value; });
   card.append(field(t("ae.runMode"), run));
-
-  // base
-  card.append(field(t("issue.baseBranch"), baseControl(action), t("ae.baseHelp")));
 
   // prompt + ✨ 프롬프트 만들기
   const prompt = el("textarea", { className: "prompt-input", placeholder: g ? (g.prompt || t("ae.none")) : t("ae.promptPh") });
@@ -427,16 +392,6 @@ async function main() {
     stateList = await fetchAllStates(token);
   } catch {
     stateList = [];
-  }
-  // 베이스 브랜치 후보(로컬 + 원격)
-  try {
-    const [loc, rem] = await Promise.all([
-      window.muxy.git.branches().catch(() => []),
-      window.muxy.git.remoteBranches().catch(() => []),
-    ]);
-    branchList = [...new Set([...loc, ...rem.map((b) => b.replace(/^origin\//, ""))])];
-  } catch {
-    branchList = [];
   }
 
   const globalActions = Array.isArray(config.actions) ? config.actions : [];
